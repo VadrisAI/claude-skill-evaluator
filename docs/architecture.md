@@ -43,26 +43,29 @@ These are the boundaries every session must honor so the pieces integrate withou
   "structure": {
     "has_skill_md": true,
     "resources": ["references/", "scripts/", "assets/"],
+    "purpose": "string, best-effort extraction from frontmatter description / first paragraph",
     "instruction_count": 0,
     "step_count": 0,
-    "full_text": "string, optional — concatenated skill content (SKILL.md + inlined resource text), used for whole-document checks like redundancy/contradiction/token-efficiency scans. Omit if unavailable; consumers must degrade gracefully.",
-    "instructions": [
-      {"id": "string, stable within this analysis", "text": "string, the instruction's literal content", "section": "string, e.g. heading name", "order": 0}
+    "steps": [
+      {"id": 1, "description": "string", "location": "string (e.g. SKILL.md:42)", "tools": [], "references_steps": []}
     ],
+    "inputs": ["string"],
+    "outputs": ["string"],
     "dependencies": [
-      {"id": "string", "from": "instruction id", "to": "instruction id or resource path", "type": "step | resource | tool"}
+      {"from_step": 1, "to_step": 2, "detail": "string"}
     ],
-    "tool_dependencies": [
-      {"tool": "string", "referenced_in": "instruction id", "defined": true}
-    ],
+    "tool_dependencies": ["string (tool/script/command name)"],
     "decision_points": [
-      {"id": "string", "condition": "string", "branches": ["instruction id, ..."], "instruction_id": "string"}
+      {"location": "string", "condition": "string"}
     ],
     "feedback_loops": [
-      {"id": "string", "trigger": "string", "exit_condition": "string or null", "instruction_id": "string"}
+      {"location": "string", "detail": "string"}
+    ],
+    "retry_mechanisms": [
+      {"location": "string", "detail": "string"}
     ],
     "failure_handling": [
-      {"id": "string", "scenario": "string", "handler": "string or null", "instruction_id": "string"}
+      {"location": "string", "detail": "string"}
     ]
   },
   "complexity_class": "simple | multi_step_process",
@@ -70,7 +73,11 @@ These are the boundaries every session must honor so the pieces integrate withou
 }
 ```
 
-**2026-09-05 addition (Module 2):** the array item shapes above (`instructions[]`, `dependencies[]`, `tool_dependencies[]`, `decision_points[]`, `feedback_loops[]`, `failure_handling[]`) and the optional `full_text` field were unspecified in the original contract — the Evaluation Engine cannot assess clarity/precision/redundancy/dead-ends/exit-conditions from bare counts alone. This is an additive clarification, not a breaking change: the top-level shape is unchanged, and every field the Evaluation Engine reads is optional/defensively handled (missing arrays are treated as `[]`, missing `full_text` skips whole-document checks) so a Module 1 build that hasn't caught up to these item shapes yet still produces valid input.
+Notes on the additive fields (added by the analyzer session, superseding the earlier draft above which is kept here only as the field list — the shapes above are authoritative):
+- `steps`, `dependencies`, `decision_points`, `feedback_loops`, `retry_mechanisms`, `failure_handling` were originally flat string arrays in the first draft of this contract; the analyzer implementation emits structured objects (as shown above) so Module 2 gets a location and detail without re-parsing free text. `instruction_count`/`step_count` stay plain numbers.
+- `purpose`, `inputs`, `outputs`, `steps[].tools`, `steps[].references_steps`, and `retry_mechanisms` (split out from `failure_handling`) are new — they cover spec.md requirements ("Zweck", "Inputs, Outputs", "Reihenfolge von Anweisungen", "Retry-Mechanismen") that the original draft omitted.
+- All heuristic extraction is best-effort and deterministic (no LLM call inside the analyzer) so repeated runs on an unchanged skill produce identical output, per spec.md's "Reproduzierbare Evaluation" requirement.
+- **2026-09-05 (Module 2):** the Evaluation Engine's rules were rewritten against this authoritative shape (see `src/evaluation/rules/`). Two things worth flagging for future contract changes: `tool_dependencies` is a flat string array with no "declared vs. merely referenced" distinction, so Module 2 can only check orphaned script-like entries, not undefined-tool usage; `decision_points`/`feedback_loops` carry no explicit branch/exit-condition structure, so exit-condition and dead-end checks are text-heuristic (keyword/number matching on `detail`/`condition`), not a real graph analysis. If a future analyzer revision adds that structure, Module 2's process rules should be revisited to use it directly instead of the heuristic.
 
 ### 2 → 3: Evaluation/Test output → Scoring input
 ```json
