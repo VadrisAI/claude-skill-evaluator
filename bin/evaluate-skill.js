@@ -41,11 +41,12 @@ function main() {
     process.exit(1);
   }
 
-  const { analysis, scoring, report } = result;
+  const { analysis, report } = result;
+  const reportPath = report.files.find((f) => f.endsWith('REPORT.md')) || path.join(report.outputDir, 'REPORT.md');
   console.log(`Evaluated: ${analysis.skill_path}`);
   console.log(`Complexity class: ${analysis.complexity_class}`);
-  console.log(`Overall score: ${scoring.scores.overall}/100`);
-  console.log(`Report written to: ${path.relative(process.cwd(), report.reportPath)}`);
+  console.log(`Overall score: ${report.scoringResult.scores.overall}/100`);
+  console.log(`Report written to: ${path.relative(process.cwd(), reportPath)}`);
 }
 
 main();

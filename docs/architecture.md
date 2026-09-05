@@ -83,9 +83,34 @@ These are the boundaries every session must honor so the pieces integrate withou
 ```
 
 ### 3 → Report Engine: Scoring output → Report input
+
+**Update (integration pass, Module 4): this is an internal call inside Module 3, not a hop module 4 orchestrates.** Module 3 owns both scoring and report generation, and its actual shipped interface (see `src/scoring/index.js`, `src/report/index.js`) consolidates them: `generateReport(evaluationOutput, opts)` takes the **Evaluation Engine's own "2 → 3" output directly** and calls `scoreEvaluation` internally, rather than Module 4 calling `scoreEvaluation` itself and passing its result into a separate `generateReport` call as originally sketched below. `scoreEvaluation` stays separately exported/importable (e.g. for module 3's own tests, or for a future report format that wants scores without the file-writing side effects), but Module 4's pipeline only ever calls `generateReport`.
+
+Confirmed real signatures, as of this integration pass:
+
+```js
+scoreEvaluation(evaluationOutput, { version, evaluatedAt, previousVersionScores })
+// -> { skill_path, complexity_class, scores, score_details, findings, test_summary, version, evaluated_at }
+
+generateReport(evaluationOutput, {
+  outputDir,               // the skill-evaluation/ directory itself (NOT its parent) — default './skill-evaluation'
+  version,                 // optional; falls back to evaluationOutput.version, then an auto-incrementing "v<next>" scoped to this skill_path
+  evaluatedAt,              // optional ISO timestamp override
+  recordHistory,            // default true
+  previousVersionScores,    // optional explicit override; omit to auto-read the latest history/evaluation-vN.json for this skill_path
+  previousVersionLabel,     // only used together with previousVersionScores
+})
+// -> { outputDir, scoringResult, comparison, files: string[] }
+```
+
+`outputDir` scopes history by `skill_path`, so a shared/default output directory can safely hold history for more than one skill without cross-contaminating "before/after" comparisons.
+
+The JSON on disk (`scores.json`, `test-results.json`, `REPORT.md`, `history/evaluation-v<version>.json`) is still shaped close to the original sketch below, plus an additive `score_details` field for traceability (spec.md: "Jede Bewertung muss nachvollziehbar sein") and an additive `report.html` visualization file:
+
 ```json
 {
   "scores": {"overall": 0, "instruction_quality": 0, "...": 0},
+  "score_details": {"...": "optional, per-metric traceability back to findings/tests"},
   "findings": ["... as above, unchanged ..."],
   "test_summary": {"total": 0, "passed": 0, "failed": 0},
   "version": "string",

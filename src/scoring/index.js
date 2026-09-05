@@ -6,10 +6,13 @@
  * Minimal fixture so the plugin/command wiring (Module 4) can be built and tested
  * end-to-end before the real scoring engine lands. Implements just enough of the
  * "3 -> Report Engine" contract from docs/architecture.md to be replaced, wholesale,
- * by the real module.
+ * by the real module. `generateReport` (src/report/index.js) is the only caller — see
+ * docs/architecture.md, "3 -> Report Engine", for why this is called from inside the Report
+ * Engine rather than by Module 4's pipeline directly.
  *
  * Contract (docs/architecture.md, "3 -> Report Engine: Scoring output -> Report input"):
  * {
+ *   skill_path, complexity_class,
  *   scores: { overall, ...per-metric }, findings: [... unchanged from Evaluation Engine ...],
  *   test_summary: { total, passed, failed }, version, evaluated_at,
  *   previous_version_scores: { ...optional... }
@@ -35,7 +38,7 @@ function scoreMetric(metric, findings) {
  * @returns {object} scoring output matching the "3 -> Report Engine" contract
  */
 function scoreEvaluation(evaluationOutput, options = {}) {
-  const { applicable_metrics, findings, test_results } = evaluationOutput;
+  const { skill_path, complexity_class, applicable_metrics, findings, test_results } = evaluationOutput;
 
   const scores = {};
   for (const metric of applicable_metrics) {
@@ -53,11 +56,13 @@ function scoreEvaluation(evaluationOutput, options = {}) {
   };
 
   const result = {
+    skill_path,
+    complexity_class,
     scores,
     findings,
     test_summary,
     version: options.version || 'v1',
-    evaluated_at: new Date().toISOString(),
+    evaluated_at: options.evaluatedAt || new Date().toISOString(),
   };
 
   if (options.previousVersionScores) {

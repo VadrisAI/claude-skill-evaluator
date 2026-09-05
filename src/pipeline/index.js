@@ -8,74 +8,41 @@
  *
  * Each stage is called strictly through the JSON contracts documented in
  * docs/architecture.md ("Interface contracts between modules"). This orchestrator does not
- * know or care whether src/analyzer, src/evaluation, src/scoring, src/report are the real
- * modules or the placeholder fixtures checked into this repo — it only depends on the
- * contract shapes, so swapping a placeholder for the real module (via PR merge) requires no
- * change here.
+ * know or care whether src/analyzer, src/evaluation, src/report are the real modules or the
+ * placeholder fixtures checked into this repo — it only depends on the contract shapes, so
+ * swapping a placeholder for the real module (via PR merge) requires no change here.
+ *
+ * Module 3 (Scoring & Report Engine) consolidates scoring and report-writing behind a single
+ * `generateReport(evaluationOutput, opts)` call, which calls `scoreEvaluation` internally (see
+ * docs/architecture.md, "3 -> Report Engine" — updated after integration-testing against the
+ * real module 1 and module 3 branches). This orchestrator therefore only ever calls
+ * `generateReport` directly; it never calls `scoreEvaluation` itself.
  */
 
-const fs = require('fs');
 const path = require('path');
 
 const { analyzeSkill } = require('../analyzer');
 const { evaluateSkill } = require('../evaluation');
-const { scoreEvaluation } = require('../scoring');
 const { generateReport } = require('../report');
 
-function nextVersionLabel(outputDir) {
-  const historyDir = path.join(outputDir, 'skill-evaluation', 'history');
-  if (!fs.existsSync(historyDir)) return 'v1';
-  const versions = fs
-    .readdirSync(historyDir)
-    .map((f) => /^evaluation-v(\d+)\.json$/.exec(f))
-    .filter(Boolean)
-    .map((m) => Number(m[1]));
-  const next = versions.length ? Math.max(...versions) + 1 : 1;
-  return `v${next}`;
-}
-
-function loadPreviousVersionScores(outputDir) {
-  const historyDir = path.join(outputDir, 'skill-evaluation', 'history');
-  if (!fs.existsSync(historyDir)) return null;
-  const files = fs
-    .readdirSync(historyDir)
-    .filter((f) => /^evaluation-v\d+\.json$/.test(f))
-    .sort();
-  if (files.length === 0) return null;
-  const latest = files[files.length - 1];
-  try {
-    const data = JSON.parse(fs.readFileSync(path.join(historyDir, latest), 'utf8'));
-    return data.scores || null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Runs the full Analyzer -> Evaluation -> Scoring -> Report pipeline for one skill.
+ * Runs the full Analyzer -> Evaluation -> Report (which scores internally) pipeline for one skill.
  *
  * @param {string} skillPath path to the skill directory to evaluate
  * @param {object} [options]
- * @param {string} [options.outputDir] where to write skill-evaluation/ (defaults to skillPath)
- * @returns {{ analysis: object, evaluation: object, scoring: object, report: object }}
+ * @param {string} [options.outputDir] parent directory to write skill-evaluation/ into (defaults to skillPath)
+ * @returns {{ analysis: object, evaluation: object, report: object }}
  */
 function runPipeline(skillPath, options = {}) {
   const outputDir = options.outputDir || skillPath;
 
   const analysis = analyzeSkill(skillPath);
   const evaluation = evaluateSkill(analysis);
+  const report = generateReport(evaluation, {
+    outputDir: path.join(outputDir, 'skill-evaluation'),
+  });
 
-  const version = nextVersionLabel(outputDir);
-  const previousVersionScores = loadPreviousVersionScores(outputDir);
-  const scoring = scoreEvaluation(evaluation, { version, previousVersionScores });
-
-  const report = generateReport(
-    scoring,
-    { skill_path: analysis.skill_path, complexity_class: analysis.complexity_class },
-    outputDir
-  );
-
-  return { analysis, evaluation, scoring, report };
+  return { analysis, evaluation, report };
 }
 
 module.exports = { runPipeline };

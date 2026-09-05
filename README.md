@@ -82,6 +82,7 @@ Both write a report to `./my-skill/skill-evaluation/` (or `--out <dir>` if given
 ```
 skill-evaluation/
 ├── REPORT.md
+├── report.html       (visual score/problem breakdown)
 ├── scores.json
 ├── test-results.json
 └── history/
