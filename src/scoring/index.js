@@ -92,6 +92,34 @@ function scoreMetric(metricKey, findings, testResults) {
 }
 
 /**
+ * Overall quality score.
+ *
+ * NOT a plain average of the per-metric scores. A plain average lets one
+ * serious weakness disappear into the metrics that simply had no findings:
+ * measured against 40 real skills, one scored 55/100 on
+ * misconfiguration_risk (15 findings) and still came out at 94 overall,
+ * because nine of its twelve metrics sat at a default 100. A report that
+ * calls that skill "94/100" is telling the user the opposite of what the
+ * analysis found, which is exactly what spec.md's "Nicht behaupten, dass ein
+ * Skill gut ist. Analysieren. Testen. Messen." warns against.
+ *
+ * So the average is capped by the weakest metric: the overall score can
+ * never exceed the midpoint between the worst metric and a perfect score.
+ * The cap is deliberately mild — a skill whose worst metric is 90 is capped
+ * at 95 and effectively unaffected — but it makes a genuine weak spot
+ * impossible to average away.
+ */
+function computeOverall(metricResults) {
+  if (metricResults.length === 0) return null;
+
+  const mean = metricResults.reduce((sum, mr) => sum + mr.score, 0) / metricResults.length;
+  const worst = Math.min(...metricResults.map((mr) => mr.score));
+  const cap = (worst + 100) / 2;
+
+  return Math.round(Math.min(mean, cap));
+}
+
+/**
  * @param {object} evaluationOutput - the "2 -> 3" contract shape
  * @param {object} [opts]
  * @param {string} [opts.version] - label for this evaluation run (e.g. "v1")
@@ -127,9 +155,7 @@ function scoreEvaluation(evaluationOutput, opts = {}) {
     scores[mr.key] = mr.score;
     score_details[mr.key] = mr;
   }
-  scores.overall = metricResults.length
-    ? Math.round(metricResults.reduce((sum, mr) => sum + mr.score, 0) / metricResults.length)
-    : null;
+  scores.overall = computeOverall(metricResults);
 
   const total = test_results.length;
   const passed = test_results.filter((t) => t.passed).length;

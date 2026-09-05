@@ -22,6 +22,12 @@ function makeTempSkill(skillMdContent, extraFiles = {}) {
 const FIXTURES = path.join(__dirname, '..', '..', 'fixtures');
 const SIMPLE_SKILL = path.join(FIXTURES, 'simple-skill');
 const MULTI_STEP_SKILL = path.join(FIXTURES, 'multi-step-skill');
+// Fixtures modelled on how real skills are actually written (see the
+// /mnt/skills corpus), added after the original fixtures turned out to be
+// shaped exactly like the heuristics expected — which hid the fact that
+// real skills matched almost none of them.
+const CATALOG_SKILL = path.join(FIXTURES, 'catalog-skill');
+const HEADING_STEPS_SKILL = path.join(FIXTURES, 'heading-steps-skill');
 
 test('simple skill: discovers SKILL.md and classifies as simple', () => {
   const result = analyzeSkill(SIMPLE_SKILL);
@@ -147,6 +153,85 @@ test('discovers scripts nested deeper than a fixed depth limit', () => {
       result.structure.tool_dependencies.includes('scripts/a/b/c/d/e/f/helper.py'),
       `expected nested script in tool_dependencies, got ${JSON.stringify(result.structure.tool_dependencies)}`
     );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('heading-steps skill: recognizes "## Step N:" headings as the step sequence', () => {
+  const result = analyzeSkill(HEADING_STEPS_SKILL);
+
+  assert.equal(result.structure.step_count, 5, 'expected the five "## Step N:" headings to be the steps');
+  assert.equal(result.complexity_class, 'multi_step_process');
+  assert.match(result.structure.steps[0].description, /Extract receipt details/i);
+  assert.equal(result.structure.steps[4].id, 5);
+});
+
+test('heading-steps skill: picks up inter-step dependencies stated in prose', () => {
+  const result = analyzeSkill(HEADING_STEPS_SKILL);
+  assert.ok(
+    result.structure.dependencies.length > 0 || result.structure.feedback_loops.length > 0,
+    'expected the "return to step 4" / "amount from step 1" references to register'
+  );
+});
+
+test('catalog skill: many tools and sections but no sequence stays simple', () => {
+  const result = analyzeSkill(CATALOG_SKILL);
+
+  // This is the case that used to break classification: a skill with several
+  // scripts and plenty of conditional prose, but no ordered steps at all.
+  assert.equal(result.structure.step_count, 0);
+  assert.ok(result.structure.tool_dependencies.length >= 4, 'fixture should expose several scripts');
+  assert.equal(result.complexity_class, 'simple');
+});
+
+test('tool count alone never establishes multi_step_process', () => {
+  const dir = makeTempSkill(
+    ['---', 'name: many-tools', 'description: Runs one task, mentions many scripts.', '---', '', '# Many Tools', '', 'Pick whichever helper fits and run it once.'].join('\n'),
+    {
+      'scripts/a.py': '#\n',
+      'scripts/b.py': '#\n',
+      'scripts/c.py': '#\n',
+      'scripts/d.sh': '#\n',
+    }
+  );
+  try {
+    const result = analyzeSkill(dir);
+    assert.ok(result.structure.tool_dependencies.length >= 4);
+    assert.equal(result.complexity_class, 'simple');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('tool_dependencies excludes markup, bare extensions, and data files', () => {
+  const dir = makeTempSkill(
+    [
+      '---',
+      'name: noisy',
+      'description: Mentions lots of non-tools in backticks.',
+      '---',
+      '',
+      '# Noisy',
+      '',
+      'Convert `.docx` files. The tag `<w:del/>` marks deletions and',
+      '`WidthType.DXA` is a constant. Schema lives in `references/wml.xsd`,',
+      'config in `references/settings.json`. Run `scripts/convert.py` to do it.',
+    ].join('\n'),
+    { 'scripts/convert.py': '#\n', 'references/wml.xsd': '<xs:schema/>\n' }
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+
+    assert.ok(structure.tool_dependencies.includes('scripts/convert.py'));
+    for (const notATool of ['.docx', '<w:del/>', 'WidthType.DXA', 'references/wml.xsd', 'references/settings.json']) {
+      assert.ok(
+        !structure.tool_dependencies.includes(notATool),
+        `"${notATool}" must not be reported as a tool dependency`
+      );
+    }
+    // The data files aren't lost — they move to referenced_files.
+    assert.ok(structure.referenced_files.includes('references/wml.xsd'));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

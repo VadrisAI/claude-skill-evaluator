@@ -54,7 +54,8 @@ These are the boundaries every session must honor so the pieces integrate withou
     "dependencies": [
       {"from_step": 1, "to_step": 2, "detail": "string"}
     ],
-    "tool_dependencies": ["string (tool/script/command name)"],
+    "tool_dependencies": ["string (executable script or known CLI tool the skill RUNS)"],
+    "referenced_files": ["string (non-executable file the skill reads: schema, template, doc, data)"],
     "decision_points": [
       {"location": "string", "condition": "string"}
     ],
@@ -78,6 +79,12 @@ Notes on the additive fields (added by the analyzer session, superseding the ear
 - `purpose`, `inputs`, `outputs`, `steps[].tools`, `steps[].references_steps`, and `retry_mechanisms` (split out from `failure_handling`) are new — they cover spec.md requirements ("Zweck", "Inputs, Outputs", "Reihenfolge von Anweisungen", "Retry-Mechanismen") that the original draft omitted.
 - All heuristic extraction is best-effort and deterministic (no LLM call inside the analyzer) so repeated runs on an unchanged skill produce identical output, per spec.md's "Reproduzierbare Evaluation" requirement.
 - **2026-09-05 (Module 2):** the Evaluation Engine's rules were rewritten against this authoritative shape (see `src/evaluation/rules/`). Two things worth flagging for future contract changes: `tool_dependencies` is a flat string array with no "declared vs. merely referenced" distinction, so Module 2 can only check orphaned script-like entries, not undefined-tool usage; `decision_points`/`feedback_loops` carry no explicit branch/exit-condition structure, so exit-condition and dead-end checks are text-heuristic (keyword/number matching on `detail`/`condition`), not a real graph analysis. If a future analyzer revision adds that structure, Module 2's process rules should be revisited to use it directly instead of the heuristic.
+
+**2026-09-05 — corrections after testing against a real-skill corpus.** The heuristics above were validated only against this repo's own fixtures until they were run over the 40 real skills in `/mnt/skills`. That exposed three defects, all now fixed; the notes matter for anyone touching these fields:
+
+- **`step_count` used to be 0 for most real skills.** Step detection only understood numbered top-level markdown lists, which real skills barely use. It now recognises, in priority order: explicit `## Step N:` / `## Phase N` headings (the dominant real-world form), `**N. ...**` bold paragraph lead-ins, then the original numbered lists. Plain sibling headings are deliberately *not* steps — `#### Merge PDFs` / `#### Split PDF` is a catalogue of alternatives, not a sequence.
+- **`complexity_class` no longer counts tool quantity.** The old rule ("≥2 independent signals", with tool count and any single `if` as signals) classified 38 of 40 real skills as `multi_step_process`, including skills with zero detected steps. Classification now requires evidence of an actual sequence: ≥3 ordered steps, or steps carrying control flow (inter-step dependencies, feedback loops, retries) between them. Conditional language and failure handling can reinforce that verdict but can no longer establish it alone. Result on the same corpus: 11 `simple` / 29 `multi_step_process`, with reference-style skills (pdf, docx, xlsx, pptx) correctly landing in `simple`. **Module 2 consumers**: expect meaningfully more `simple` classifications than before, i.e. the process-only metrics now correctly stay out of more reports.
+- **`tool_dependencies` was heavily inflated** — any backticked token containing a dot qualified, so one real skill reported 77 "tools" consisting mostly of XML tags (`<w:del/>`), code constants (`WidthType.DXA`), bare extensions (`.docx`) and 39 schema files. It is now restricted to executables the skill runs (`.py`, `.sh`, `.js`, …) and known CLI tools; everything merely *read* moved to the new additive `referenced_files` field.
 
 ### 2 → 3: Evaluation/Test output → Scoring input
 ```json
@@ -127,6 +134,8 @@ generateReport(evaluationOutput, {
 ```
 
 `outputDir` scopes history by `skill_path`, so a shared/default output directory can safely hold history for more than one skill without cross-contaminating "before/after" comparisons.
+
+**`scores.overall` is not a plain average (changed 2026-09-05).** It is the mean of the applicable metrics, *capped at the midpoint between the weakest metric and 100*. Reason: on the real-skill corpus a plain average let serious weaknesses vanish into metrics that simply had no findings — one skill scored 55/100 on `misconfiguration_risk` (15 findings) yet came out at 94 overall, because nine of its twelve metrics sat at a default 100. The cap is mild by design (worst metric 90 ⇒ cap 95, effectively no change) but makes a genuine weak spot impossible to average away. Measured effect across the 40-skill corpus: the overall-score range widened from 89–100 (clustered at 98) to 65–100 with a median of 94, i.e. the tool now actually discriminates.
 
 The JSON on disk (`scores.json`, `test-results.json`, `REPORT.md`, `history/evaluation-v<version>.json`) is still shaped close to the original sketch below, plus an additive `score_details` field for traceability (spec.md: "Jede Bewertung muss nachvollziehbar sein") and an additive `report.html` visualization file:
 
