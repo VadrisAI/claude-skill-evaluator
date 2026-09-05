@@ -192,12 +192,23 @@ function rerunCommands(r) {
   const customOutDir = r.evalDir && defaultEvalDir && path.resolve(r.evalDir) !== path.resolve(defaultEvalDir)
     ? path.dirname(r.evalDir)
     : null;
-  const outFlag = customOutDir ? ` --out ${customOutDir}` : '';
+  const outFlag = customOutDir ? ` --out ${shellQuote(customOutDir)}` : '';
+  const quotedSkillPath = skillPath ? shellQuote(skillPath) : '';
 
   return {
-    claudeCode: `/evaluate-skill ${skillPath}${outFlag}`,
-    standaloneCli: `node bin/evaluate-skill.js ${skillPath}${outFlag}`,
+    claudeCode: `/evaluate-skill ${quotedSkillPath}${outFlag}`,
+    standaloneCli: `node bin/evaluate-skill.js ${quotedSkillPath}${outFlag}`,
   };
+}
+
+/**
+ * Single-quotes a value for safe copy-paste into a POSIX shell (and,
+ * consistently, into the /evaluate-skill slash command) — a skill path
+ * containing a space or other shell-significant character would otherwise
+ * split into multiple arguments when the shown command is pasted verbatim.
+ */
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
 function deltaBadge(comparison) {

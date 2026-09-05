@@ -122,7 +122,10 @@ test('re-run command includes --out when the report was not written to the defau
     buildDashboard(root, { out: outFile });
     const html = fs.readFileSync(outFile, 'utf8');
 
-    assert.match(html, new RegExp(`--out ${escapeRegExp(path.join(root, 'reports'))}`));
+    // Rendered inside <code>, so escapeHtml turns the quote into &#39; — a
+    // browser (or a copy-paste from one) turns that right back into a
+    // literal ' for the user, which is what actually lands in their shell.
+    assert.match(html, new RegExp(`--out &#39;${escapeRegExp(path.join(root, 'reports'))}&#39;`));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -131,6 +134,25 @@ test('re-run command includes --out when the report was not written to the defau
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+test('re-run command shell-quotes a skill path containing a space', () => {
+  const root = makeTempRoot();
+  try {
+    const skillPathWithSpace = path.join(root, 'My Skill');
+    const evaluationOutput = { ...SIMPLE_V1, skill_path: skillPathWithSpace };
+    generateReport(evaluationOutput, { outputDir: path.join(skillPathWithSpace, 'skill-evaluation'), version: 'v1' });
+
+    const outFile = path.join(root, 'dashboard.html');
+    buildDashboard(root, { out: outFile });
+    const html = fs.readFileSync(outFile, 'utf8');
+
+    // Quoted as one shell argument (HTML-escaped quote — see note above),
+    // not split into "My" and "Skill".
+    assert.match(html, new RegExp(`&#39;${escapeRegExp(skillPathWithSpace)}&#39;`));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('buildDashboard handles zero evaluated skills without crashing', () => {
   const root = makeTempRoot();
