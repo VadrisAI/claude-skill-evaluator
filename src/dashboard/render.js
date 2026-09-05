@@ -150,6 +150,7 @@ function skillCard(r, outDir) {
   const reportMdLink = r.reportMdPath ? linkTo(outDir, r.reportMdPath, 'REPORT.md') : null;
   const reportHtmlLink = r.reportHtmlPath ? linkTo(outDir, r.reportHtmlPath, 'report.html') : null;
   const links = [reportMdLink, reportHtmlLink].filter(Boolean).join(' ');
+  const rerunCmds = rerunCommands(r);
 
   return `      <div class="card" style="border:1px solid var(--border); border-radius:8px; padding:14px;">
         <div class="card-header">
@@ -167,9 +168,36 @@ function skillCard(r, outDir) {
         ${links ? `<div class="links">${links}</div>` : ''}
         <div class="rerun">
           <span class="label" style="font-size:12px;">Erneut prüfen:</span>
-          <code>node bin/evaluate-skill.js ${escapeHtml(r.skillPath || '')}</code>
+          <code># in Claude Code:
+${escapeHtml(rerunCmds.claudeCode)}
+# als Standalone-CLI (im Projektverzeichnis):
+${escapeHtml(rerunCmds.standaloneCli)}</code>
         </div>
       </div>`;
+}
+
+/**
+ * Two forms of the re-run command, since which one actually works depends
+ * on how the user is running this tool:
+ * - inside Claude Code (plugin installed, no local repo checkout in cwd)
+ * - as the standalone CLI from a cloned repo checkout
+ * Both also restore the original `--out <dir>` when the evaluation wasn't
+ * written to the default `<skill>/skill-evaluation` location, so
+ * re-running updates the same directory the dashboard is showing instead
+ * of creating a second one elsewhere.
+ */
+function rerunCommands(r) {
+  const skillPath = r.skillPath || '';
+  const defaultEvalDir = skillPath ? path.join(skillPath, 'skill-evaluation') : null;
+  const customOutDir = r.evalDir && defaultEvalDir && path.resolve(r.evalDir) !== path.resolve(defaultEvalDir)
+    ? path.dirname(r.evalDir)
+    : null;
+  const outFlag = customOutDir ? ` --out ${customOutDir}` : '';
+
+  return {
+    claudeCode: `/evaluate-skill ${skillPath}${outFlag}`,
+    standaloneCli: `node bin/evaluate-skill.js ${skillPath}${outFlag}`,
+  };
 }
 
 function deltaBadge(comparison) {

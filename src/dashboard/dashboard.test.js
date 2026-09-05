@@ -98,6 +98,9 @@ test('buildDashboard renders one HTML file summarizing multiple skills', () => {
     assert.match(html, /pdf-form-filler/);
     assert.match(html, /release-notes-pipeline/);
     assert.match(html, /REPORT\.md/);
+    // Both forms shown, since which one actually works depends on how the
+    // user is running the tool (installed plugin vs. standalone checkout).
+    assert.match(html, /\/evaluate-skill /);
     assert.match(html, /node bin\/evaluate-skill\.js/);
     // Static, read-only: never claims it can trigger a run itself.
     assert.doesNotMatch(html, /<button/i);
@@ -105,6 +108,29 @@ test('buildDashboard renders one HTML file summarizing multiple skills', () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('re-run command includes --out when the report was not written to the default <skill>/skill-evaluation location', () => {
+  const root = makeTempRoot();
+  try {
+    // SIMPLE_V1's skill_path ("./examples/pdf-form-filler") does not match
+    // where this evaluation dir actually lives, so a plain re-run would
+    // silently create a second, disconnected skill-evaluation/ elsewhere.
+    const evalDir = path.join(root, 'reports', 'skill-evaluation');
+    generateReport(SIMPLE_V1, { outputDir: evalDir, version: 'v1' });
+
+    const outFile = path.join(root, 'dashboard.html');
+    buildDashboard(root, { out: outFile });
+    const html = fs.readFileSync(outFile, 'utf8');
+
+    assert.match(html, new RegExp(`--out ${escapeRegExp(path.join(root, 'reports'))}`));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 test('buildDashboard handles zero evaluated skills without crashing', () => {
   const root = makeTempRoot();
