@@ -68,9 +68,14 @@ jobs:
       - name: Verify the evaluated skills were not modified
         run: |
           set -e
-          if ! git diff --quiet -- fixtures/; then
+          # Must cover new files as well as edits: the evaluator's default
+          # output location is <skill>/skill-evaluation/, so the most likely
+          # regression is an *added* directory inside the fixture — which
+          # `git diff` alone does not see, since it ignores untracked paths.
+          changes="$(git status --porcelain --untracked-files=all -- fixtures/)"
+          if [ -n "$changes" ]; then
             echo "The evaluator modified the skill it evaluated — this violates the project's core non-goal."
-            git diff --stat -- fixtures/
+            echo "$changes"
             exit 1
           fi
-          echo "Fixtures untouched, as required."
+          echo "Fixtures untouched (no edits, no new files), as required."
