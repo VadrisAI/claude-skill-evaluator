@@ -1,0 +1,33 @@
+{
+  "skill_path": "fixtures/simple-skill-with-issues",
+  "structure": {
+    "has_skill_md": true,
+    "resources": ["references/unused-notes.md"],
+    "instruction_count": 7,
+    "step_count": 1,
+    "full_text": "Vielleicht solltest du versuchen, den Text zusammenzufassen. Fasse den Text in eigenen Worten zusammen. Kurz. Fasse den Text in eigenen Worten zusammen. Der Assistent muss immer den Originaltext im Original zitieren. Der Assistent darf niemals den Originaltext im Original zitieren.",
+    "instructions": [
+      { "id": "i1", "text": "Vielleicht solltest du versuchen, den Text zusammenzufassen.", "section": "Ablauf", "order": 0 },
+      { "id": "i2", "text": "Fasse den Text in eigenen Worten zusammen.", "section": "Ablauf", "order": 1 },
+      { "id": "i3", "text": "Kurz.", "section": "Ablauf", "order": 2 },
+      { "id": "i4", "text": "Fasse den Text in eigenen Worten zusammen.", "section": "Ablauf", "order": 3 },
+      { "id": "i5", "text": "Der Assistent muss immer den Originaltext im Original zitieren.", "section": "Regeln", "order": 4 },
+      { "id": "i6", "text": "Der Assistent darf niemals den Originaltext im Original zitieren.", "section": "Regeln", "order": 5 },
+      {
+        "id": "i7",
+        "text": "Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel.",
+        "section": "Hintergrund",
+        "order": 6
+      }
+    ],
+    "dependencies": [],
+    "tool_dependencies": [
+      { "tool": "web_search", "referenced_in": "i2", "defined": false }
+    ],
+    "decision_points": [],
+    "feedback_loops": [],
+    "failure_handling": []
+  },
+  "complexity_class": "simple",
+  "complexity_signals": ["single linear task", "no decision points", "no feedback loops"]
+}

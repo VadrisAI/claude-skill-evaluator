@@ -1,0 +1,37 @@
+{
+  "skill_path": "fixtures/multi-step-clean-skill",
+  "structure": {
+    "has_skill_md": true,
+    "resources": [],
+    "instruction_count": 6,
+    "step_count": 6,
+    "instructions": [
+      { "id": "j1", "text": "Lies die Rohdaten ein und bestimme deren Format.", "section": "Eingabe", "order": 0 },
+      { "id": "j2", "text": "Prüfe, ob alle Pflichtfelder vorhanden und gültig sind.", "section": "Validierung", "order": 1 },
+      { "id": "j3", "text": "Analysiere, ob die Eingabe eine Liste oder ein Einzelwert ist.", "section": "Verzweigung", "order": 2 },
+      { "id": "j4", "text": "Verarbeite jedes Listenelement einzeln und sammle die Ergebnisse.", "section": "Verarbeitung", "order": 3 },
+      { "id": "j5", "text": "Verarbeite den Einzelwert direkt.", "section": "Verarbeitung", "order": 4 },
+      { "id": "j6", "text": "Erstelle die zusammengefasste Ausgabe aus den gesammelten Ergebnissen.", "section": "Ausgabe", "order": 5 }
+    ],
+    "dependencies": [
+      { "id": "d1", "from": "j1", "to": "j2", "type": "step" },
+      { "id": "d2", "from": "j2", "to": "j3", "type": "step" },
+      { "id": "d3", "from": "j4", "to": "j6", "type": "step" },
+      { "id": "d4", "from": "j5", "to": "j6", "type": "step" }
+    ],
+    "tool_dependencies": [
+      { "tool": "file_reader", "referenced_in": "j1", "defined": true }
+    ],
+    "decision_points": [
+      { "id": "dp1", "condition": "Ist der Input eine Liste?", "branches": ["j4", "j5"], "instruction_id": "j3" }
+    ],
+    "feedback_loops": [
+      { "id": "fl1", "trigger": "Validierung schlaegt fehl", "exit_condition": "Nach maximal 3 Versuchen oder bestandener Validierung", "instruction_id": "j2" }
+    ],
+    "failure_handling": [
+      { "id": "fh1", "scenario": "Tool nicht verfuegbar", "handler": "Nutzer informieren und Ablauf abbrechen.", "instruction_id": "j2" }
+    ]
+  },
+  "complexity_class": "multi_step_process",
+  "complexity_signals": ["multiple connected steps", "decision point with two branches", "feedback loop with exit condition"]
+}

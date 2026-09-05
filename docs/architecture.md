@@ -45,16 +45,32 @@ These are the boundaries every session must honor so the pieces integrate withou
     "resources": ["references/", "scripts/", "assets/"],
     "instruction_count": 0,
     "step_count": 0,
-    "dependencies": [],
-    "tool_dependencies": [],
-    "decision_points": [],
-    "feedback_loops": [],
-    "failure_handling": []
+    "full_text": "string, optional — concatenated skill content (SKILL.md + inlined resource text), used for whole-document checks like redundancy/contradiction/token-efficiency scans. Omit if unavailable; consumers must degrade gracefully.",
+    "instructions": [
+      {"id": "string, stable within this analysis", "text": "string, the instruction's literal content", "section": "string, e.g. heading name", "order": 0}
+    ],
+    "dependencies": [
+      {"id": "string", "from": "instruction id", "to": "instruction id or resource path", "type": "step | resource | tool"}
+    ],
+    "tool_dependencies": [
+      {"tool": "string", "referenced_in": "instruction id", "defined": true}
+    ],
+    "decision_points": [
+      {"id": "string", "condition": "string", "branches": ["instruction id, ..."], "instruction_id": "string"}
+    ],
+    "feedback_loops": [
+      {"id": "string", "trigger": "string", "exit_condition": "string or null", "instruction_id": "string"}
+    ],
+    "failure_handling": [
+      {"id": "string", "scenario": "string", "handler": "string or null", "instruction_id": "string"}
+    ]
   },
   "complexity_class": "simple | multi_step_process",
   "complexity_signals": ["string reasons for the classification"]
 }
 ```
+
+**2026-09-05 addition (Module 2):** the array item shapes above (`instructions[]`, `dependencies[]`, `tool_dependencies[]`, `decision_points[]`, `feedback_loops[]`, `failure_handling[]`) and the optional `full_text` field were unspecified in the original contract — the Evaluation Engine cannot assess clarity/precision/redundancy/dead-ends/exit-conditions from bare counts alone. This is an additive clarification, not a breaking change: the top-level shape is unchanged, and every field the Evaluation Engine reads is optional/defensively handled (missing arrays are treated as `[]`, missing `full_text` skips whole-document checks) so a Module 1 build that hasn't caught up to these item shapes yet still produces valid input.
 
 ### 2 → 3: Evaluation/Test output → Scoring input
 ```json
