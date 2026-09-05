@@ -1,0 +1,40 @@
+{
+  "skill_path": "fixtures/simple-skill-with-issues",
+  "structure": {
+    "has_skill_md": true,
+    "resources": ["scripts/"],
+    "purpose": "Kurz gesagt.",
+    "instruction_count": 2,
+    "step_count": 2,
+    "steps": [
+      { "id": 1, "description": "Vielleicht den Text bereinigen.", "location": "SKILL.md:5", "tools": [], "references_steps": [] },
+      { "id": 2, "description": "Das Ergebnis wird zurückgegeben.", "location": "SKILL.md:6", "tools": [], "references_steps": [] }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "tool_dependencies": ["scripts/helper.py"],
+    "decision_points": [
+      { "location": "SKILL.md:10", "condition": "Wenn der Text leer ist, eventuell abbrechen." },
+      { "location": "SKILL.md:22", "condition": "Das System darf niemals eine Fehlermeldung ausgeben, wenn die Eingabe leer ist." },
+      {
+        "location": "SKILL.md:24",
+        "condition": "Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel."
+      }
+    ],
+    "feedback_loops": [
+      { "location": "SKILL.md:12", "detail": "Wiederhole den Vorgang, bis das Ergebnis passt." }
+    ],
+    "retry_mechanisms": [
+      { "location": "SKILL.md:12", "detail": "Wiederhole den Vorgang, bis das Ergebnis passt." }
+    ],
+    "failure_handling": [
+      { "location": "SKILL.md:14", "detail": "Kurz." },
+      { "location": "SKILL.md:16", "detail": "Wenn der Text leer ist, sofort abbrechen und den Nutzer informieren." },
+      { "location": "SKILL.md:18", "detail": "Wenn der Text leer ist, sofort abbrechen und den Nutzer informieren." },
+      { "location": "SKILL.md:20", "detail": "Das System muss immer eine Fehlermeldung ausgeben, wenn die Eingabe leer ist." }
+    ]
+  },
+  "complexity_class": "simple",
+  "complexity_signals": ["Below the multi-step threshold, but contains a couple of conditional/retry lines."]
+}

@@ -16,16 +16,16 @@ It diagnoses. You decide how to revise. Re-run the evaluator on the new version 
 
 ## Status
 
-MVP in progress, built as four parallel modules (see [`docs/architecture.md`](docs/architecture.md)):
+MVP complete: all four modules are implemented and wired together (see [`docs/architecture.md`](docs/architecture.md)):
 
 | # | Module | Status |
 |---|--------|--------|
-| 1 | Structure & Complexity Analyzer (`src/analyzer/`) | placeholder fixture — real module lands via its own PR |
-| 2 | Evaluation & Test Engine (`src/evaluation/`) | placeholder fixture — real module lands via its own PR |
-| 3 | Scoring & Report Engine (`src/scoring/`, `src/report/`) | placeholder fixture — real module lands via its own PR |
-| 4 | Plugin & Command Integration (`commands/`, `.claude-plugin/`, `bin/`, `src/pipeline/`) | working end-to-end wiring |
+| 1 | Structure & Complexity Analyzer (`src/analyzer/`) | implemented |
+| 2 | Evaluation & Test Engine (`src/evaluation/`) | implemented |
+| 3 | Scoring & Report Engine (`src/scoring/`, `src/report/`) | implemented |
+| 4 | Plugin & Command Integration (`commands/`, `.claude-plugin/`, `bin/`, `src/pipeline/`) | implemented |
 
-The pipeline wiring, CLI, and slash commands are fully functional today, running against the placeholder fixtures in `src/analyzer/`, `src/evaluation/`, `src/scoring/`, and `src/report/`. Each fixture is clearly marked `PLACEHOLDER IMPLEMENTATION` in its file header and implements just enough of the JSON contracts in `docs/architecture.md` to exercise the full chain — real implementations replace them file-for-file, with no change needed to the orchestration in `src/pipeline/`.
+The pipeline wiring, CLI, and slash commands run the real modules end to end — see `npm test` (46 tests across all four modules plus the pipeline integration test) and `node bin/evaluate-skill.js <skill-path>` for a live run.
 
 See [`docs/spec.md`](docs/spec.md) for the full product specification and [`docs/architecture.md`](docs/architecture.md) for the pipeline and module boundaries.
 

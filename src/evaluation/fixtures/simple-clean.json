@@ -1,0 +1,23 @@
+{
+  "skill_path": "fixtures/simple-clean-skill",
+  "structure": {
+    "has_skill_md": true,
+    "resources": ["references/"],
+    "purpose": "Fasst einen vom Nutzer bereitgestellten Text in maximal drei Sätzen zusammen.",
+    "instruction_count": 3,
+    "step_count": 0,
+    "steps": [],
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "tool_dependencies": [],
+    "decision_points": [],
+    "feedback_loops": [],
+    "retry_mechanisms": [],
+    "failure_handling": [
+      { "location": "SKILL.md:10", "detail": "Falls kein Text bereitgestellt wurde, den Nutzer höflich um einen Text bitten." }
+    ]
+  },
+  "complexity_class": "simple",
+  "complexity_signals": ["No multi-step structural signals detected; skill reads as a single, clearly scoped task."]
+}

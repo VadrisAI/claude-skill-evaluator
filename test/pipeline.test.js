@@ -38,8 +38,8 @@ test('runPipeline wires analyzer -> evaluation -> report (which scores internall
 
   const reportText = fs.readFileSync(reportPath, 'utf8');
   assert.match(reportText, /# Skill Evaluation Report/);
-  assert.match(reportText, /## Scores/);
-  assert.match(reportText, /diagnostic only/);
+  assert.match(reportText, /## Gesamtbewertung/);
+  assert.match(reportText, /keine.*Ersatzformulierung/s);
 
   fs.rmSync(outputDir, { recursive: true, force: true });
 });
@@ -52,7 +52,16 @@ test('runPipeline produces a version comparison on a second run against the same
 
   assert.notEqual(first.report.scoringResult.version, second.report.scoringResult.version);
   assert.ok(second.report.comparison);
-  assert.deepEqual(second.report.comparison.previousVersionScores, first.report.scoringResult.scores);
+  // Real report engine shape (src/report/compare.js#compareScores): { rows, has_regressions, regressions, improvements } —
+  // there is no echoed "previousVersionScores" field. Same input run twice, so nothing should have moved.
+  assert.ok(Array.isArray(second.report.comparison.rows));
+  assert.equal(second.report.comparison.has_regressions, false);
+  assert.deepEqual(second.report.comparison.improvements, []);
+  for (const row of second.report.comparison.rows) {
+    assert.equal(row.before, first.report.scoringResult.scores[row.metric]);
+    assert.equal(row.after, second.report.scoringResult.scores[row.metric]);
+    assert.equal(row.status, 'unchanged');
+  }
 
   fs.rmSync(outputDir, { recursive: true, force: true });
 });

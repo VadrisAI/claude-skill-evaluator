@@ -13,13 +13,13 @@ This project is split into four modules, built and reviewed independently. Read 
 
 If you're contributing to modules 1-3, work only inside your module's directory and honor the JSON contracts in `docs/architecture.md` exactly — the orchestrator in `src/pipeline/index.js` calls each module only through those shapes and does not otherwise care about internal implementation. If a contract turns out to be insufficient, make a small additive change to `docs/architecture.md` first (in the same PR), so the other modules stay unblocked, then implement against the updated contract.
 
-## Replacing a placeholder module
+## Modifying a module
 
-`src/analyzer/index.js`, `src/evaluation/index.js`, `src/scoring/index.js`, and `src/report/index.js` currently contain minimal placeholder fixtures (each file says so in its header comment) so the plugin wiring could be built and tested end-to-end before the real modules existed. To land your real module:
+All four modules are implemented. To change one:
 
-1. Replace the placeholder file(s) in your module's directory with your implementation, keeping the same exported function names and same contract shapes (see `docs/architecture.md`).
-2. Run `npm test` — `test/pipeline.test.js` exercises the full pipeline against `test/fixtures/sample-skill/` and will catch a contract mismatch.
-3. Open a PR against `main` from your module branch (`module/analyzer`, `module/evaluation`, or `module/scoring-report`).
+1. Work only inside your module's directory, keeping the same exported function names and contract shapes (see `docs/architecture.md`).
+2. Run `npm test` — `test/pipeline.test.js` exercises the full pipeline against `test/fixtures/sample-skill/` and will catch a contract mismatch; each module also has its own test file.
+3. Open a PR against `main` from a branch named after the module you're changing (e.g. `module/analyzer`).
 
 ## Non-goals (do not build these)
 

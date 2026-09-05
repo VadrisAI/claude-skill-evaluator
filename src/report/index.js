@@ -1,200 +1,127 @@
 'use strict';
 
-/**
- * PLACEHOLDER IMPLEMENTATION — Module 3 (Scoring & Report Engine) owns this file.
- *
- * Minimal fixture so the plugin/command wiring (Module 4) can be built and tested
- * end-to-end before the real report engine lands. Real implementation shape confirmed by
- * integration-testing this branch against the real `module/scoring-report` branch — see
- * docs/architecture.md, "3 -> Report Engine", for the authoritative signature. Matches that
- * signature here so no further pipeline change is needed once the real module replaces this
- * file:
- *
- *   generateReport(evaluationOutput, { outputDir, version, evaluatedAt, recordHistory,
- *                                       previousVersionScores, previousVersionLabel })
- *     -> { outputDir, scoringResult, comparison, files: string[] }
- *
- * Writes, inside `opts.outputDir` (the skill-evaluation/ directory itself):
- *   REPORT.md, scores.json, test-results.json, history/evaluation-v<version>.json
- *
- * IMPORTANT (non-goal, repeated from docs/spec.md and docs/architecture.md): this module
- * never rewrites, "fixes," or outputs a corrected version of the evaluated skill. It only
- * ever writes report artifacts under outputDir.
- */
-
 const fs = require('fs');
 const path = require('path');
 
 const { scoreEvaluation } = require('../scoring');
-
-const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
-
-function readLatestHistoryScores(historyDir, skillPath) {
-  if (!fs.existsSync(historyDir)) return { scores: null, version: null };
-  const files = fs
-    .readdirSync(historyDir)
-    .filter((f) => /^evaluation-v.+\.json$/.test(f))
-    .sort();
-  for (let i = files.length - 1; i >= 0; i--) {
-    try {
-      const data = JSON.parse(fs.readFileSync(path.join(historyDir, files[i]), 'utf8'));
-      if (data.skill_path === skillPath) {
-        return { scores: data.scores || null, version: data.version || null };
-      }
-    } catch {
-      // skip unreadable/partial history entries
-    }
-  }
-  return { scores: null, version: null };
-}
-
-function nextVersionLabel(historyDir, skillPath) {
-  if (!fs.existsSync(historyDir)) return 'v1';
-  const versions = fs
-    .readdirSync(historyDir)
-    .map((f) => /^evaluation-v(\d+)\.json$/.exec(f))
-    .filter(Boolean)
-    .map((m) => Number(m[1]));
-  const next = versions.length ? Math.max(...versions) + 1 : 1;
-  return `v${next}`;
-}
-
-function formatFinding(finding, index) {
-  return [
-    `### ${index + 1}. [${finding.severity}] ${finding.problem}`,
-    '',
-    `- **BETROFFENER BEREICH**: ${finding.area}`,
-    `- **GENAUE STELLE**: ${finding.location}`,
-    `- **PROBLEM**: ${finding.problem}`,
-    `- **URSACHE**: ${finding.cause}`,
-    `- **AUSWIRKUNG**: ${finding.impact}`,
-    `- **VERBESSERUNGSRICHTUNG**: ${finding.improvement_direction}`,
-    `- **ZU BEACHTEN**: ${finding.watch_for}`,
-    `- **KONTEXT**: ${finding.context}`,
-    '',
-  ].join('\n');
-}
-
-function formatScoreTable(scores) {
-  const rows = Object.entries(scores)
-    .filter(([key]) => key !== 'overall')
-    .map(([key, value]) => `| ${key} | ${value}/100 |`);
-  return ['| Metric | Score |', '| --- | --- |', `| **overall** | **${scores.overall}/100** |`, ...rows].join('\n');
-}
-
-function formatComparisonTable(scores, previousScores) {
-  if (!previousScores) return '';
-  const keys = Array.from(new Set([...Object.keys(previousScores), ...Object.keys(scores)]));
-  const rows = keys.map((key) => {
-    const prev = previousScores[key];
-    const curr = scores[key];
-    const delta = typeof prev === 'number' && typeof curr === 'number' ? curr - prev : null;
-    const deltaStr = delta === null ? 'n/a' : delta >= 0 ? `+${delta}` : `${delta}`;
-    return `| ${key} | ${prev ?? 'n/a'} | ${curr ?? 'n/a'} | ${deltaStr} |`;
-  });
-  return [
-    '## Version Comparison',
-    '',
-    '| Metric | Previous | Current | Change |',
-    '| --- | --- | --- | --- |',
-    ...rows,
-    '',
-  ].join('\n');
-}
-
-function buildReportMarkdown(scoringResult, previousVersionScores) {
-  const { skill_path, complexity_class, scores, findings, test_summary, version, evaluated_at } = scoringResult;
-  const sortedFindings = [...findings].sort(
-    (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
-  );
-
-  const sections = [
-    '# Skill Evaluation Report',
-    '',
-    `- **Skill**: \`${skill_path}\``,
-    `- **Complexity class**: \`${complexity_class}\``,
-    `- **Version**: ${version}`,
-    `- **Evaluated at**: ${evaluated_at}`,
-    '',
-    '## Scores',
-    '',
-    formatScoreTable(scores),
-    '',
-    formatComparisonTable(scores, previousVersionScores),
-    '## Tests',
-    '',
-    `- Total: ${test_summary.total}`,
-    `- Passed: ${test_summary.passed}`,
-    `- Failed: ${test_summary.failed}`,
-    '',
-    `## Findings (${sortedFindings.length})`,
-    '',
-  ];
-
-  if (sortedFindings.length === 0) {
-    sections.push('No findings.');
-  } else {
-    sortedFindings.forEach((finding, index) => sections.push(formatFinding(finding, index)));
-  }
-
-  sections.push(
-    '---',
-    '',
-    '_This report is diagnostic only. It does not rewrite, fix, or auto-optimize the evaluated skill — the improvement direction above is guidance, not a drop-in replacement. The skill author decides how to revise it, then re-runs the evaluator to measure the change._'
-  );
-
-  return sections.join('\n');
-}
+const { renderReportMarkdown } = require('./markdown');
+const { renderVisualizationHtml } = require('./visualize');
+const { readLatestHistory, nextVersionLabel, writeHistoryEntry, compareScores } = require('./compare');
 
 /**
- * @param {object} evaluationOutput output of src/evaluation (the "2 -> 3" contract)
+ * Report Engine — module 3 (see docs/architecture.md).
+ *
+ * Consumes the Evaluation/Test Engine output (the "2 -> 3" contract) and
+ * produces the `skill-evaluation/` folder structure described in spec.md:
+ *
+ *   skill-evaluation/
+ *   ├── REPORT.md
+ *   ├── scores.json
+ *   ├── test-results.json
+ *   ├── report.html          (visual auswertung, additive — not in spec's tree but required by "Visuelle Auswertung")
+ *   └── history/
+ *       ├── evaluation-v1.json
+ *       └── evaluation-v2.json
+ *
+ * @param {object} evaluationOutput - the "2 -> 3" contract shape
  * @param {object} [opts]
- * @param {string} [opts.outputDir] the skill-evaluation/ directory itself (default './skill-evaluation')
- * @param {string} [opts.version] version label; defaults to evaluationOutput.version, else auto-incrementing
- * @param {boolean} [opts.recordHistory] write a history/evaluation-vN.json entry (default true)
- * @param {object} [opts.previousVersionScores] explicit override for the before/after comparison
- * @returns {{ outputDir: string, scoringResult: object, comparison: object|null, files: string[] }}
+ * @param {string} [opts.outputDir] - defaults to "./skill-evaluation"
+ * @param {string} [opts.version] - version label for this run (e.g. "v2"); falls back to evaluationOutput.version, then to an auto-incrementing "v<next>" scoped to this skill's history
+ * @param {string} [opts.evaluatedAt] - ISO timestamp; defaults to now
+ * @param {boolean} [opts.recordHistory] - write a history/evaluation-vN.json entry (default true)
+ * @param {object} [opts.previousVersionScores] - explicit override: a raw scores map (e.g. `{ overall: 70, robustness: 60 }`), same shape as scoringResult.scores — NOT a history entry. When omitted, the latest history/evaluation-vN.json entry for this same skill_path is used automatically.
+ * @param {string} [opts.previousVersionLabel] - version label to show in the comparison when opts.previousVersionScores is set (ignored otherwise, since the history entry already carries its own label)
+ * @returns {object} { outputDir, scoringResult, comparison, files: string[] }
  */
 function generateReport(evaluationOutput, opts = {}) {
   const outputDir = path.resolve(opts.outputDir || './skill-evaluation');
-  const historyDir = path.join(outputDir, 'history');
-  fs.mkdirSync(historyDir, { recursive: true });
+  fs.mkdirSync(outputDir, { recursive: true });
 
   const skillPath = evaluationOutput.skill_path;
 
-  let previousVersionScores = opts.previousVersionScores;
-  if (previousVersionScores === undefined) {
-    previousVersionScores = readLatestHistoryScores(historyDir, skillPath).scores;
+  let previousVersionScores;
+  let previousVersionLabel;
+  if (opts.previousVersionScores !== undefined) {
+    previousVersionScores = opts.previousVersionScores;
+    previousVersionLabel = opts.previousVersionLabel || null;
+  } else {
+    // Scoped to this skill_path: a shared/default output directory can hold
+    // history for more than one skill, and comparing against another
+    // skill's last run would produce a misleading "before/after".
+    const previousEntry = readLatestHistory(outputDir, skillPath);
+    previousVersionScores = previousEntry ? previousEntry.scores : null;
+    previousVersionLabel = previousEntry ? previousEntry.version : null;
   }
 
-  const version = opts.version || evaluationOutput.version || nextVersionLabel(historyDir, skillPath);
+  const version = opts.version || evaluationOutput.version || nextVersionLabel(outputDir, skillPath);
 
-  const scoringResult = scoreEvaluation(evaluationOutput, { version, previousVersionScores });
+  const scoringResult = scoreEvaluation(evaluationOutput, {
+    version,
+    evaluatedAt: opts.evaluatedAt,
+    previousVersionScores,
+  });
+
+  const comparison = compareScores(scoringResult.scores, previousVersionScores);
 
   const files = [];
 
-  const reportPath = path.join(outputDir, 'REPORT.md');
-  fs.writeFileSync(reportPath, buildReportMarkdown(scoringResult, previousVersionScores));
-  files.push(reportPath);
-
   const scoresPath = path.join(outputDir, 'scores.json');
-  fs.writeFileSync(scoresPath, JSON.stringify(scoringResult.scores, null, 2));
+  fs.writeFileSync(
+    scoresPath,
+    JSON.stringify(
+      {
+        skill_path: scoringResult.skill_path,
+        complexity_class: scoringResult.complexity_class,
+        version: scoringResult.version,
+        evaluated_at: scoringResult.evaluated_at,
+        scores: scoringResult.scores,
+        score_details: scoringResult.score_details,
+        comparison,
+      },
+      null,
+      2
+    ) + '\n',
+    'utf8'
+  );
   files.push(scoresPath);
 
   const testResultsPath = path.join(outputDir, 'test-results.json');
   fs.writeFileSync(
     testResultsPath,
-    JSON.stringify({ test_summary: scoringResult.test_summary, findings: scoringResult.findings }, null, 2)
+    JSON.stringify(
+      {
+        skill_path: scoringResult.skill_path,
+        version: scoringResult.version,
+        evaluated_at: scoringResult.evaluated_at,
+        test_summary: scoringResult.test_summary,
+        test_results: evaluationOutput.test_results || [],
+      },
+      null,
+      2
+    ) + '\n',
+    'utf8'
   );
   files.push(testResultsPath);
 
+  const visualizationFile = 'report.html';
+  const htmlPath = path.join(outputDir, visualizationFile);
+  fs.writeFileSync(htmlPath, renderVisualizationHtml(scoringResult, comparison), 'utf8');
+  files.push(htmlPath);
+
+  const reportMd = renderReportMarkdown(scoringResult, comparison, {
+    previousVersionLabel,
+    visualizationFile,
+  });
+  const reportPath = path.join(outputDir, 'REPORT.md');
+  fs.writeFileSync(reportPath, reportMd, 'utf8');
+  files.push(reportPath);
+
   if (opts.recordHistory !== false) {
-    const historyPath = path.join(historyDir, `evaluation-${version}.json`);
-    fs.writeFileSync(historyPath, JSON.stringify(scoringResult, null, 2));
-    files.push(historyPath);
+    const entry = writeHistoryEntry(outputDir, scoringResult);
+    files.push(entry.path);
   }
 
-  return { outputDir, scoringResult, comparison: previousVersionScores ? { previousVersionScores } : null, files };
+  return { outputDir, scoringResult, comparison, files };
 }
 
 module.exports = { generateReport };
