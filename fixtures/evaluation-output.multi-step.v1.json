@@ -1,0 +1,88 @@
+{
+  "skill_path": "./examples/release-notes-pipeline",
+  "complexity_class": "multi_step_process",
+  "applicable_metrics": [
+    "instruction_quality",
+    "task_definition",
+    "consistency",
+    "robustness",
+    "completeness",
+    "efficiency",
+    "process_logic",
+    "dependency_clarity",
+    "workflow_robustness"
+  ],
+  "findings": [
+    {
+      "area": "Prozessablauf",
+      "location": "SKILL.md, Schritt 3 \"Changelog generieren\" → Schritt 4 \"An Reviewer senden\"",
+      "problem": "Schritt 4 setzt eine von Schritt 3 erzeugte Datei (changelog.md) voraus, aber Schritt 3 beschreibt nicht, wo diese Datei abgelegt wird.",
+      "cause": "Der Output-Pfad von Schritt 3 wurde beim Schreiben der Instruction nicht festgelegt, nur das Ergebnis inhaltlich beschrieben.",
+      "impact": "Schritt 4 kann die Datei nicht zuverlässig finden; der Prozess bricht ab oder das Modell muss raten, was zu inkonsistentem Verhalten führt.",
+      "improvement_direction": "Für Schritt 3 einen festen, benannten Output (Pfad oder Variable) definieren, den Schritt 4 explizit referenziert.",
+      "watch_for": "Der Pfad sollte konsistent mit sonstigen Datei-Konventionen im Skill sein, nicht neu erfunden werden.",
+      "context": "Testfall process-002 (End-to-End-Lauf) brach nach Schritt 3 ab, da Schritt 4 keine Datei fand.",
+      "severity": "CRITICAL",
+      "metric": "process_logic"
+    },
+    {
+      "area": "Prozessablauf",
+      "location": "SKILL.md, Schritt 5 \"Bei Ablehnung überarbeiten\"",
+      "problem": "Es gibt eine Schleife zurück zu Schritt 3 bei Ablehnung durch den Reviewer, aber keine Abbruchbedingung, falls der Reviewer wiederholt ablehnt.",
+      "cause": "Die Feedback-Schleife wurde als einmaliger Fall entworfen, ein wiederholter Ablehnungsfall wurde nicht bedacht.",
+      "impact": "Bei wiederholter Ablehnung kann der Prozess theoretisch endlos zwischen Schritt 3 und 5 pendeln, ohne dass ein Ausstieg definiert ist.",
+      "improvement_direction": "Eine maximale Anzahl Überarbeitungsrunden oder eine explizite Eskalations-/Abbruchbedingung ergänzen.",
+      "watch_for": "Die Abbruchbedingung darf nicht so niedrig sein, dass legitime, mehrfache kleine Korrekturen bereits abgebrochen werden.",
+      "context": "Kein Testfall konnte dies vollständig simulieren; als strukturelles Risiko aus der Prozessanalyse abgeleitet (kein definiertes Exit-Kriterium in der Schleifenbeschreibung gefunden).",
+      "severity": "HIGH",
+      "metric": "workflow_robustness"
+    },
+    {
+      "area": "Prozessablauf",
+      "location": "SKILL.md, Schritt 2 \"Commits sammeln\"",
+      "problem": "Schritt 2 hängt implizit von einem vorherigen Checkout des richtigen Branches ab, dies wird aber nirgends als Abhängigkeit benannt.",
+      "cause": "Die Abhängigkeit auf den aktuellen Git-Zustand wurde als selbstverständlich vorausgesetzt.",
+      "impact": "Wird der Skill in einem falschen oder nicht initialisierten Repository-Zustand gestartet, sammelt Schritt 2 falsche oder keine Commits, ohne dass ein Fehler sichtbar wird.",
+      "improvement_direction": "Die Abhängigkeit von einem vorbereiteten Repository-/Branch-Zustand explizit als Vorbedingung dokumentieren.",
+      "watch_for": "Vorbedingung knapp halten — kein vollständiges Git-Tutorial einfügen.",
+      "context": "Testfall process-001 mit falsch ausgecheckten Branch lieferte ein leeres Changelog ohne Fehlermeldung.",
+      "severity": "HIGH",
+      "metric": "dependency_clarity"
+    },
+    {
+      "area": "SKILL.md — Instructions",
+      "location": "SKILL.md, Abschnitt \"Tool-Nutzung\"",
+      "problem": "Es wird auf ein Tool \"git-changelog\" verwiesen, ohne zu spezifizieren, wie es aufgerufen wird oder was bei fehlender Verfügbarkeit passieren soll.",
+      "cause": "Die Tool-Abhängigkeit wurde nur namentlich erwähnt, nicht mit Aufrufkonvention oder Fallback beschrieben.",
+      "impact": "In Umgebungen ohne dieses Tool bleibt unklar, wie der Skill weiter vorgehen soll.",
+      "improvement_direction": "Aufrufkonvention und ein Fallback-Verhalten bei fehlendem Tool ergänzen.",
+      "watch_for": "Der Fallback sollte nicht implizit eine schlechtere Qualität ohne Hinweis an den Nutzer erzeugen.",
+      "context": "Aus der Tool-Abhängigkeits-Analyse (Modul 1) als unklar markiert.",
+      "severity": "MEDIUM",
+      "metric": "instruction_quality"
+    },
+    {
+      "area": "SKILL.md — Beschreibung",
+      "location": "SKILL.md, YAML-Frontmatter",
+      "problem": "Zweck und erwarteter Endzustand des gesamten Prozesses werden nicht in einem Satz zusammengefasst.",
+      "cause": "Die Beschreibung konzentriert sich auf den ersten Schritt (\"sammelt Commits\"), nicht auf das Gesamtziel (\"veröffentlichungsreife Release Notes\").",
+      "impact": "Nutzer:innen und das Modell selbst können das Gesamtziel des mehrstufigen Prozesses missverstehen.",
+      "improvement_direction": "Eine kurze Zusammenfassung des Gesamtziels ergänzen, nicht nur des ersten Schritts.",
+      "watch_for": "Zusammenfassung kurz halten, keine Wiederholung der einzelnen Schritte.",
+      "context": "Vergleich mit den übrigen Skill-Beispielen im Projekt, die jeweils das Gesamtziel in der Beschreibung nennen.",
+      "severity": "LOW",
+      "metric": "task_definition"
+    }
+  ],
+  "test_results": [
+    { "test_id": "standard-001", "category": "standard", "passed": true, "detail": "Normaler Release-Zyklus mit sauberem Git-Log erfolgreich durchlaufen." },
+    { "test_id": "process-001", "category": "process_transition", "passed": false, "detail": "Falscher Branch-Zustand führte zu leerem Changelog ohne Fehlermeldung." },
+    { "test_id": "process-002", "category": "process_transition", "passed": false, "detail": "Übergabe von Schritt 3 zu Schritt 4 scheiterte mangels definiertem Output-Pfad." },
+    { "test_id": "dependency-001", "category": "dependency", "passed": false, "detail": "Implizite Branch-Abhängigkeit nicht erkannt, kein Hinweis im Prozess." },
+    { "test_id": "decision-001", "category": "decision_logic", "passed": true, "detail": "Entscheidung 'Breaking Change ja/nein' korrekt aus Commit-Nachrichten abgeleitet." },
+    { "test_id": "feedback-001", "category": "feedback_loop", "passed": false, "detail": "Wiederholte Ablehnung durch Reviewer führte in eine Schleife ohne Exit." },
+    { "test_id": "end_to_end-001", "category": "end_to_end", "passed": false, "detail": "Vollständiger Lauf von Commit-Sammlung bis Veröffentlichung schlug an Schritt 3→4 fehl." },
+    { "test_id": "edge-001", "category": "edge", "passed": true, "detail": "Leeres Commit-Log (keine Änderungen) korrekt als 'kein Release nötig' erkannt." },
+    { "test_id": "ambiguous-001", "category": "ambiguous", "passed": true, "detail": "Uneinheitliche Commit-Message-Formate sinnvoll interpretiert." }
+  ]
+}
