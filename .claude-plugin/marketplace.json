@@ -1,0 +1,14 @@
+{
+  "name": "claude-skill-evaluator-marketplace",
+  "description": "Self-hosted marketplace for the Claude Agent Skill Evaluator plugin.",
+  "owner": {
+    "name": "VadrisAI"
+  },
+  "plugins": [
+    {
+      "name": "claude-skill-evaluator",
+      "source": "./",
+      "description": "Independently analyzes, tests, and scores an existing Claude Agent Skill. Never creates, modifies, or auto-fixes skills."
+    }
+  ]
+}
