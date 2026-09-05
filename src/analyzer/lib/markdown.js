@@ -61,17 +61,22 @@ function extractListItems(body) {
   lines.forEach((line, idx) => {
     if (fenced[idx]) return;
     const ordered = /^(\s*)(\d+)[.)]\s+(.*)$/.exec(line);
-    const unordered = /^(\s*)[-*+]\s+(.*)$/.exec(line);
-    const m = ordered || unordered;
+    // Some skills number their steps as a bold paragraph lead-in rather than
+    // a markdown list: "**1. Get the export.** ...". Anchored to the line
+    // start so the same notation inside prose isn't picked up.
+    const boldOrdered = ordered ? null : /^(\s*)\*\*(\d+)[.)]\s+(.*)$/.exec(line);
+    const unordered = ordered || boldOrdered ? null : /^(\s*)[-*+]\s+(.*)$/.exec(line);
+    const m = ordered || boldOrdered || unordered;
     if (!m) return;
 
+    const isOrdered = Boolean(ordered || boldOrdered);
     const indent = m[1].length;
-    const text = ordered ? m[3].trim() : m[2].trim();
+    const text = isOrdered ? m[3].replace(/\*\*/g, '').trim() : m[2].trim();
     const lineNumber = idx + 1;
     const heading = [...headings].reverse().find((h) => h.line < lineNumber);
 
     items.push({
-      ordered: Boolean(ordered),
+      ordered: isOrdered,
       depth: Math.floor(indent / 2),
       text,
       line: lineNumber,
@@ -102,4 +107,4 @@ function extractCodeBlocks(body) {
   return blocks;
 }
 
-module.exports = { splitLines, extractHeadings, extractListItems, extractCodeBlocks };
+module.exports = { splitLines, computeFenceMask, extractHeadings, extractListItems, extractCodeBlocks };

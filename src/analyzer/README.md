@@ -68,28 +68,47 @@ otherwise simple skill from mis-triggering `multi_step_process` on its
 own — `complexity_signals` always lists which evidence was found so the
 classification is auditable, not a black box.
 
+## Validated against a real-skill corpus
+
+The heuristics here were originally written and tested against this repo's
+own fixtures — fixtures that happened to be shaped exactly the way the
+heuristics expected. Running the analyzer over the 40 real skills in
+`/mnt/skills` immediately showed how misleading that was:
+
+| | before | after |
+|---|---|---|
+| `simple` / `multi_step_process` split | 2 / 38 | 11 / 29 |
+| `step_count` for `pdf`, `docx`, `xlsx`, `pptx` | 0 (yet classified multi-step) | 0, correctly `simple` |
+| `tool_dependencies` for `docx` | 77 (XML tags, constants, schemas) | 17 (the actual `.py` scripts) |
+
+Any change to the extraction or classification heuristics should be
+re-checked against a corpus of real skills, not just the fixtures — that's
+the check that catches this class of mistake.
+
 ## Known heuristic limitations
 
 Structure extraction is regex/markdown-based, not a semantic parser, so:
 
-- `tool_dependencies` can over-include: any inline-code span that looks
-  like a path or has a file extension is swept in, including output
-  filenames mentioned in backticks (e.g. `` `report.md` ``). Downstream
-  consumers should treat this list as "candidate tools/resources
-  mentioned," not a verified tool registry.
 - `decision_points` matches generic conditional language (if/when/unless/
   otherwise/else/depending on/in case) line-by-line; it will flag prose
   that reads as conditional even when there's no real branching logic.
-  This is why the complexity classifier requires corroborating signals
-  rather than trusting `decision_points` alone.
-- `dependencies` only captures *explicit* "step N" cross-references in
-  step text; purely sequential ordering (step 2 implicitly follows step 1)
-  is not recorded as a dependency edge.
-- Step extraction picks the largest ordered top-level list under a
-  heading that reads like "Steps"/"Workflow"/"Process"/"Instructions"/
-  "Procedure" (falling back to the largest ordered list in the document).
-  A skill using different heading language, or non-list step formatting,
-  may not have its steps detected.
+  This is why the complexity classifier treats it only as *supporting*
+  evidence and never lets it establish `multi_step_process` on its own.
+- `dependencies` only captures *explicit* "step N" cross-references in a
+  step's heading or section body; purely sequential ordering (step 2
+  implicitly follows step 1) is not recorded as a dependency edge.
+- Keyword scans (`feedback_loops`, `retry_mechanisms`, `failure_handling`)
+  are line-based, so a phrase split across a line break — "return to\nstep
+  4" — is missed.
+- Step extraction understands explicit `## Step N:` / `## Phase N`
+  headings, `**N. ...**` bold lead-ins, and numbered top-level lists. A
+  skill that describes a genuine sequence purely in prose, with no
+  numbering of any kind, will still report `step_count: 0` and therefore
+  classify as `simple`.
+- Plain sibling headings are intentionally *not* steps: `#### Merge PDFs` /
+  `#### Split PDF` is a catalogue of alternatives. This is a deliberate
+  trade — treating them as steps is precisely what made nearly every real
+  skill look like a multi-step process.
 
 These are documented rather than silently masked so Module 2/3 can decide
 how much weight to give each field.

@@ -1,6 +1,6 @@
 'use strict';
 
-const { splitLines, extractHeadings, extractListItems } = require('./markdown');
+const { splitLines, computeFenceMask, extractHeadings, extractListItems } = require('./markdown');
 
 const STEP_SECTION_RE = /\b(steps?|workflow|process|procedure|instructions)\b/i;
 const DECISION_RE = /\b(if|when|unless|otherwise|else|depending on|in case)\b/i;
@@ -8,6 +8,8 @@ const FEEDBACK_RE = /\b(loop back|repeat until|go back to step|return to step|it
 const RETRY_RE = /\b(retry|retries|try again|re-attempt|reattempt|up to \d+ times?)\b/i;
 const FAILURE_RE = /\b(fail(?:s|ed|ure)?|error|fallback|abort|roll ?back)\b/i;
 const KNOWN_TOOL_NAMES = /^(git|npm|npx|pip3?|python3?|node|bash|sh|curl|wget|docker|jq|grep|sed|awk|make|cargo|go|ruby|perl)$/i;
+const EXECUTABLE_EXT = /\.(py|sh|bash|zsh|js|mjs|cjs|ts|rb|pl|ps1)$/i;
+const REFERENCED_FILE_EXT = /\.(md|json|ya?ml|xml|xsd|csv|tsv|txt|html?|css|svg|png|jpe?g|gif|pdf|docx?|xlsx?|pptx?|toml|ini)$/i;
 
 /**
  * Builds the "structure" object of the analyzer -> evaluation contract
@@ -20,7 +22,7 @@ function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontm
   const listItems = extractListItems(body);
   const locate = (bodyLine) => `SKILL.md:${bodyLine + frontmatterOffset}`;
 
-  const steps = extractSteps(listItems);
+  const steps = extractSteps(listItems, headings, body);
   const inputs = extractSection(body, headings, /input/i);
   const outputs = extractSection(body, headings, /output/i);
 
@@ -41,6 +43,7 @@ function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontm
     outputs,
     dependencies: extractDependencies(steps),
     tool_dependencies: extractToolDependencies({ frontmatter, body, tree }),
+    referenced_files: extractReferencedFiles({ body, tree }),
     decision_points: scanKeywordLines(body, DECISION_RE).map((r) => ({
       location: locate(r.line),
       condition: r.detail,
@@ -85,12 +88,26 @@ function extractSection(body, headings, namePattern) {
 }
 
 /**
- * A skill's main step sequence is heuristically identified as the ordered,
- * top-level (non-nested) list under a heading that reads like "Steps",
- * "Workflow", "Process", etc. Falls back to the largest ordered top-level
- * list in the document when no such heading exists.
+ * A skill's main step sequence, in priority order:
+ *
+ * 1. Explicit step headings ("## Step 1: ...", "### Phase 2 — ...").
+ *    Strongest signal there is: the author numbered them themselves.
+ * 2. Otherwise, the ordered top-level list under a "Steps"/"Workflow"/
+ *    "Process"-style heading, else the largest ordered top-level list.
+ *
+ * Real-world skills overwhelmingly use form 1 or plain heading hierarchies;
+ * an earlier version of this function only understood form 2 and therefore
+ * reported step_count = 0 for most real skills (e.g. every skill under
+ * /mnt/skills that structures its workflow as "## Step N:" headings). Note
+ * that plain (non-numbered) sibling headings are deliberately NOT treated
+ * as steps: "#### Merge PDFs" / "#### Split PDF" is a catalogue of
+ * alternatives, not a sequence, and counting those as process steps is
+ * what made almost every skill look like a multi-step process.
  */
-function extractSteps(listItems) {
+function extractSteps(listItems, headings = [], body = '') {
+  const headingSteps = extractStepHeadings(headings, body);
+  if (headingSteps.length > 0) return headingSteps;
+
   const orderedTop = listItems.filter((li) => li.ordered && li.depth === 0);
   if (orderedTop.length === 0) return [];
 
@@ -132,6 +149,107 @@ function extractSteps(listItems) {
   });
 }
 
+/**
+ * Finds headings that explicitly number themselves as steps/phases, e.g.
+ * "## Step 1: Extract Receipt Details" or "### Phase 2 — Review".
+ * Sub-steps ("### 2a. Navigate", "### 2b. Fetch code") are folded into
+ * their parent step rather than counted separately, so step_count stays
+ * the number of top-level stages the author defined.
+ */
+function extractStepHeadings(headings, body = '') {
+  const lines = splitLines(body);
+  const matches = [];
+  for (const h of headings) {
+    const m = /^(?:step|phase|stage|schritt)\s*#?\s*(\d+)\s*[:.\-–—)]?\s*(.*)$/i.exec(h.text.trim());
+    if (m) {
+      matches.push({ number: Number(m[1]), title: m[2].trim() || h.text.trim(), heading: h });
+    }
+  }
+  if (matches.length < 2) return []; // a lone "Step 1" isn't a sequence
+
+  // Keep only the shallowest heading level in play, so "### 2a." style
+  // sub-steps under "## Step 2:" don't inflate the count.
+  const topLevel = Math.min(...matches.map((m) => m.heading.level));
+  const topSteps = matches.filter((m) => m.heading.level === topLevel);
+
+  const seen = new Set();
+  const ordered = [];
+  for (const m of topSteps) {
+    if (seen.has(m.number)) continue; // duplicate "Step 2" headings: keep the first
+    seen.add(m.number);
+    ordered.push(m);
+  }
+
+  // Steps get sequential ids (1..N) regardless of how the author labelled
+  // them, so a "Phase 10 / Phase 20 / Phase 30" skill still yields ids
+  // 1, 2, 3. Cross-references in prose, though, use the author's labels —
+  // so they have to be translated back, or "the result from Phase 20" would
+  // become a dependency on a step id 20 that does not exist.
+  const labelToId = new Map(ordered.map((m, idx) => [m.number, idx + 1]));
+  const labelsAreSequential = ordered.every((m, idx) => m.number === idx + 1);
+  const fenced = computeFenceMask(lines);
+
+  return ordered.map((m, idx) => {
+    const id = idx + 1;
+    const title = m.heading.text.trim();
+    // A step's substance lives in the prose under its heading, not in the
+    // heading text — that's where "the amount from step 1" or "return to
+    // step 4" actually appear, so the section body has to be scanned too.
+    // Fenced code is excluded: a sample log line reading "return to step 9"
+    // is an example, not a dependency of the surrounding step.
+    const sectionText = sectionBody(lines, fenced, headings, m.heading);
+    const searchText = `${title}\n${sectionText}`;
+
+    const refs = [];
+    for (const x of searchText.matchAll(/\b(?:step|phase|stage|schritt)\s+#?(\d+)\b/gi)) {
+      const label = Number(x[1]);
+      if (label === m.number) continue; // a step referring to itself
+      if (labelToId.has(label)) {
+        const target = labelToId.get(label);
+        if (target !== id) refs.push(target);
+      } else if (labelsAreSequential) {
+        // Labels are a plain 1..N sequence, so an out-of-range number is a
+        // genuine reference to a step that does not exist — worth passing
+        // on. With non-sequential labels we cannot tell a broken reference
+        // from an unrecognised numbering scheme, so it is dropped rather
+        // than invented.
+        refs.push(label);
+      }
+    }
+
+    const tools = [...searchText.matchAll(/`([^`\n]+)`/g)].map((x) => x[1].trim()).filter(looksLikeTool);
+
+    return {
+      id,
+      text: title,
+      line: m.heading.line,
+      referencesSteps: [...new Set(refs)],
+      tools: [...new Set(tools)],
+    };
+  });
+}
+
+/**
+ * The lines belonging to a heading's own section: everything until the next
+ * heading at the same or a higher level.
+ */
+function sectionBody(lines, fenced, headings, heading) {
+  const next = headings.find((h) => h.line > heading.line && h.level <= heading.level);
+  const end = next ? next.line - 1 : lines.length;
+  return lines
+    .slice(heading.line, end)
+    .filter((line, i) => {
+      if (fenced[heading.line + i]) return false; // examples, not instructions
+      // Sub-headings are structure, not cross-references: a "### Step 4:"
+      // nested under "## Stage 2" names a sub-step of that stage — reading
+      // it as "stage 2 depends on step 4" invents a dependency that the
+      // skill never stated.
+      if (/^\s*#{1,6}\s/.test(line)) return false;
+      return true;
+    })
+    .join('\n');
+}
+
 function extractDependencies(steps) {
   const deps = [];
   for (const step of steps) {
@@ -157,12 +275,48 @@ function extractToolDependencies({ frontmatter, body, tree }) {
   }
 
   for (const file of collectFiles(tree)) {
-    if (/^scripts[/\\]/.test(file.path) || /\.(py|sh|js|ts|rb)$/i.test(file.path)) {
+    if (EXECUTABLE_EXT.test(file.path)) {
       tools.add(file.path.replace(/\\/g, '/'));
     }
   }
 
   return [...tools].sort();
+}
+
+/**
+ * Non-executable files the SKILL.md points at (references/*.md, schemas,
+ * templates, data). Kept separate from tool_dependencies: a schema or
+ * template a skill *reads* is not a tool it *runs*, and lumping them
+ * together inflated tool_dependencies badly enough to distort complexity
+ * classification (one real skill reported 77 "tools", of which only the
+ * 17 .py scripts actually were any).
+ */
+function extractReferencedFiles({ body, tree }) {
+  const files = new Set();
+
+  for (const match of body.matchAll(/`([^`\n]+)`/g)) {
+    const value = match[1].trim();
+    if (looksLikeReferencedFile(value)) files.add(value);
+  }
+
+  // Markdown links: [notes](references/notes.md)
+  for (const match of body.matchAll(/\]\(([^)\s]+)\)/g)) {
+    const value = match[1].trim();
+    if (looksLikeReferencedFile(value)) files.add(value);
+  }
+
+  // Files on disk count only when the SKILL.md actually mentions them — by
+  // full path or by filename. Listing every file that merely exists would
+  // contradict the field's meaning ("what the skill reads") and hand the
+  // evaluation engine phantom dependencies for stray assets.
+  for (const file of collectFiles(tree)) {
+    const p = file.path.replace(/\\/g, '/');
+    if (EXECUTABLE_EXT.test(p) || p.toLowerCase() === 'skill.md') continue;
+    const base = p.split('/').pop();
+    if (body.includes(p) || body.includes(base)) files.add(p);
+  }
+
+  return [...files].sort();
 }
 
 function collectFiles(tree, acc = []) {
@@ -173,13 +327,31 @@ function collectFiles(tree, acc = []) {
   return acc;
 }
 
+/**
+ * A "tool dependency" is something the skill RUNS: an executable script it
+ * invokes, or a known command-line tool. Deliberately strict — an earlier,
+ * looser version counted any backticked span with a dot in it, which swept
+ * in XML tags (`<w:del/>`), code constants (`WidthType.DXA`), bare file
+ * extensions (`.docx`) and dozens of schema files. Anything that is merely
+ * referenced (data, schemas, templates, docs) belongs in referenced_files.
+ */
 function looksLikeTool(value) {
-  if (!value || value.includes(' ') && !value.includes('/')) {
-    // multi-word backticked spans are usually prose emphasis, not a tool name,
-    // unless they look like a path (contains a slash).
-    if (!value.includes('/')) return false;
-  }
-  return value.includes('/') || /\.[a-z0-9]{1,4}$/i.test(value) || KNOWN_TOOL_NAMES.test(value);
+  const v = (value || '').trim();
+  if (!v || v.length > 120) return false;
+  if (/[<>{}()]/.test(v)) return false; // markup / code fragments, not tools
+  if (v.startsWith('.')) return false; // a bare extension like ".docx"
+  if (/\s/.test(v)) return false; // prose or a full command line, not a tool name
+  return EXECUTABLE_EXT.test(v) || KNOWN_TOOL_NAMES.test(v);
+}
+
+function looksLikeReferencedFile(value) {
+  const v = (value || '').trim();
+  if (!v || v.length > 120) return false;
+  if (/[<>{}()]/.test(v)) return false;
+  if (v.startsWith('.')) return false;
+  if (/\s/.test(v)) return false;
+  if (EXECUTABLE_EXT.test(v)) return false; // that's a tool, not a plain reference
+  return REFERENCED_FILE_EXT.test(v);
 }
 
 function scanKeywordLines(body, regex) {
