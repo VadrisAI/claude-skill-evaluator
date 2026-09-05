@@ -28,9 +28,13 @@ const { generateReport } = require('./src/report');
 
 const { outputDir, scoringResult, comparison, files } = generateReport(evaluationOutput, {
   outputDir: './skill-evaluation', // default
-  version: 'v2',
-  // previousVersionScores: {...}  // optional override; otherwise the latest
-                                    // history/evaluation-vN.json entry is used automatically
+  version: 'v2',                   // optional; defaults to evaluationOutput.version, then
+                                    // an auto-incrementing "v<next>" scoped to this skill's history
+  // previousVersionScores: { overall: 70, robustness: 60, ... }
+  //   optional override — a raw scores map, same shape as scoringResult.scores.
+  //   When omitted, the latest history/evaluation-vN.json entry that matches
+  //   this evaluationOutput.skill_path is used automatically (history for a
+  //   different skill sharing the same outputDir is never picked up).
 });
 ```
 

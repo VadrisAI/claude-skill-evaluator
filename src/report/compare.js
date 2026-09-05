@@ -34,12 +34,41 @@ function listHistory(outputDir) {
 
 /**
  * Reads the most recent history entry (highest vN), if any.
+ *
+ * When `skillPath` is given, only entries whose stored `skill_path` matches
+ * are considered — a `history/` directory can end up holding entries for
+ * more than one skill (e.g. a shared/default `--out` dir reused across
+ * evaluations), and without this filter the "previous version" picked for
+ * comparison could silently belong to a different skill entirely. Pass no
+ * `skillPath` only when you deliberately want the latest entry regardless
+ * of which skill it belongs to.
  */
-function readLatestHistory(outputDir) {
+function readLatestHistory(outputDir, skillPath) {
   const entries = listHistory(outputDir);
-  if (entries.length === 0) return null;
-  const latest = entries[entries.length - 1];
-  return JSON.parse(fs.readFileSync(latest.path, 'utf8'));
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const data = JSON.parse(fs.readFileSync(entries[i].path, 'utf8'));
+    if (skillPath === undefined || data.skill_path === skillPath) {
+      return data;
+    }
+  }
+  return null;
+}
+
+/**
+ * Counts existing history entries for `skillPath` and returns the label for
+ * the next one (e.g. "v3"), for use as a default `version` when the caller
+ * didn't supply one. Scoped per skill for the same reason as
+ * readLatestHistory: the raw file-sequence number (evaluation-vN.json) can
+ * span multiple skills sharing one output directory.
+ */
+function nextVersionLabel(outputDir, skillPath) {
+  const entries = listHistory(outputDir);
+  let count = 0;
+  for (const entry of entries) {
+    const data = JSON.parse(fs.readFileSync(entry.path, 'utf8'));
+    if (skillPath === undefined || data.skill_path === skillPath) count += 1;
+  }
+  return `v${count + 1}`;
 }
 
 /**
@@ -108,6 +137,7 @@ function compareScores(currentScores, previousScores) {
 module.exports = {
   listHistory,
   readLatestHistory,
+  nextVersionLabel,
   writeHistoryEntry,
   compareScores,
   historyDir,

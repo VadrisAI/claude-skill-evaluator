@@ -108,3 +108,43 @@ test('history entries accumulate as evaluation-v1.json, v2.json, ... across repe
   const historyFiles = fs.readdirSync(path.join(dir, 'history')).sort();
   assert.deepEqual(historyFiles, ['evaluation-v1.json', 'evaluation-v2.json']);
 });
+
+test('previousVersionScores accepts a raw scores map, as documented, not a history entry', () => {
+  const dir = tmpDir();
+  const input = loadFixture('evaluation-output.simple.v1.json');
+  const { comparison, scoringResult } = generateReport(input, {
+    outputDir: dir,
+    version: 'v2',
+    previousVersionScores: { overall: 70, robustness: 60 },
+    previousVersionLabel: 'v1',
+  });
+
+  assert.ok(comparison, 'comparison must not be silently omitted for the documented override shape');
+  const overallRow = comparison.rows.find((r) => r.metric === 'overall');
+  assert.equal(overallRow.before, 70);
+  assert.equal(overallRow.after, scoringResult.scores.overall);
+});
+
+test('version label defaults to an auto-incrementing v<next>, not "unversioned", when omitted', () => {
+  const dir = tmpDir();
+  const v1 = loadFixture('evaluation-output.simple.v1.json');
+  const v2 = loadFixture('evaluation-output.simple.v2.json');
+
+  const first = generateReport(v1, { outputDir: dir });
+  assert.equal(first.scoringResult.version, 'v1');
+
+  const second = generateReport(v2, { outputDir: dir });
+  assert.equal(second.scoringResult.version, 'v2');
+});
+
+test('history comparison is scoped per skill_path: an unrelated skill in the same outputDir is never used as "previous"', () => {
+  const dir = tmpDir();
+  const skillA = loadFixture('evaluation-output.simple.v1.json');
+  const skillB = loadFixture('evaluation-output.multi-step.v1.json');
+  assert.notEqual(skillA.skill_path, skillB.skill_path);
+
+  generateReport(skillA, { outputDir: dir, version: 'v1' });
+  const { comparison } = generateReport(skillB, { outputDir: dir, version: 'v1' });
+
+  assert.equal(comparison, null, 'a different skill sharing the output dir must not be treated as a previous version');
+});
