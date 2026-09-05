@@ -2,23 +2,22 @@
   "skill_path": "fixtures/simple-clean-skill",
   "structure": {
     "has_skill_md": true,
-    "resources": ["references/style-guide.md"],
+    "resources": ["references/"],
+    "purpose": "Fasst einen vom Nutzer bereitgestellten Text in maximal drei Sätzen zusammen.",
     "instruction_count": 3,
-    "step_count": 1,
-    "full_text": "Vorgehen: Lies references/style-guide.md, um den gewünschten Tonfall zu übernehmen. Erstelle eine kurze Zusammenfassung des bereitgestellten Textes in maximal drei Sätzen. Qualitätssicherung: Prüfe, ob die Zusammenfassung alle Kernaussagen des Originaltextes enthält, bevor du antwortest.",
-    "instructions": [
-      { "id": "instr-1", "text": "Lies references/style-guide.md, um den gewünschten Tonfall zu übernehmen.", "section": "Vorgehen", "order": 0 },
-      { "id": "instr-2", "text": "Erstelle eine kurze Zusammenfassung des bereitgestellten Textes in maximal drei Sätzen.", "section": "Vorgehen", "order": 1 },
-      { "id": "instr-3", "text": "Prüfe, ob die Zusammenfassung alle Kernaussagen des Originaltextes enthält, bevor du antwortest.", "section": "Qualitätssicherung", "order": 2 }
-    ],
+    "step_count": 0,
+    "steps": [],
+    "inputs": [],
+    "outputs": [],
     "dependencies": [],
     "tool_dependencies": [],
     "decision_points": [],
     "feedback_loops": [],
+    "retry_mechanisms": [],
     "failure_handling": [
-      { "id": "fh-1", "scenario": "Eingabetext ist leer", "handler": "Nutzer hoeflich um einen Text bitten.", "instruction_id": "instr-2" }
+      { "location": "SKILL.md:10", "detail": "Falls kein Text bereitgestellt wurde, den Nutzer höflich um einen Text bitten." }
     ]
   },
   "complexity_class": "simple",
-  "complexity_signals": ["single linear task", "no decision points", "no feedback loops"]
+  "complexity_signals": ["No multi-step structural signals detected; skill reads as a single, clearly scoped task."]
 }

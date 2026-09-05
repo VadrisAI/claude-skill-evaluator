@@ -73,24 +73,28 @@ test('simple skill with issues: base rules catch problems, process rules never r
   const byId = Object.fromEntries(output.test_results.map((r) => [r.test_id, r]));
   assert.equal(byId['structure-has-skill-md'].passed, true);
   assert.equal(byId['instruction-count-nonzero'].passed, true);
+  assert.equal(byId['no-failure-handling-declared'].passed, true);
+  assert.equal(byId['purpose-declared'].passed, false);
   assert.equal(byId['vague-language'].passed, false);
   assert.equal(byId['instruction-too-short'].passed, false);
   assert.equal(byId['instruction-too-long'].passed, false);
   assert.equal(byId['duplicate-instructions'].passed, false);
   assert.equal(byId['contradictory-always-never'].passed, false);
-  assert.equal(byId['undefined-tool-dependency'].passed, false);
-  assert.equal(byId['no-failure-handling-declared'].passed, false);
-  assert.equal(byId['declared-resources-unreferenced'].passed, false);
+  assert.equal(byId['instructions-not-imperative'].passed, false);
+  assert.equal(byId['tool-dependency-orphaned-script'].passed, false);
+  assert.equal(byId['inputs-or-outputs-undeclared'].passed, false);
 
   // No process-only test category should ever appear for a "simple" skill.
   const processCategories = new Set(processRules.map((r) => r.testCategory));
+  const baseCategories = new Set(baseRules.map((r) => r.testCategory));
   for (const result of output.test_results) {
-    assert.ok(!processCategories.has(result.category) || baseRules.some((r) => r.testCategory === result.category));
+    assert.ok(!processCategories.has(result.category) || baseCategories.has(result.category));
   }
 
   assert.ok(output.findings.length > 0);
+  assert.ok(output.findings.every((f) => BASE_METRICS.includes(f.metric)));
   assert.ok(output.findings.some((f) => f.metric === 'contradictions' && f.severity === 'HIGH'));
-  assert.ok(output.findings.some((f) => f.metric === 'misconfiguration_risk' && f.severity === 'HIGH'));
+  assert.ok(output.findings.some((f) => f.metric === 'misconfiguration_risk'));
 });
 
 test('multi-step, clean skill: process metrics included, no findings, everything passes', () => {
@@ -105,26 +109,34 @@ test('multi-step, clean skill: process metrics included, no findings, everything
   assert.ok(output.test_results.every((r) => r.passed === true));
 });
 
-test('multi-step skill with issues: process rules detect broken dependencies, dead ends and missing exit conditions', () => {
+test('multi-step skill with issues: process rules detect broken dependencies, missing exit conditions and dead-end loop targets', () => {
   const output = evaluateSkill(loadFixture('multi-step-with-issues.json'));
   assertContractShape(output);
 
   const byId = Object.fromEntries(output.test_results.map((r) => [r.test_id, r]));
   assert.equal(byId['dependency-references-valid'].passed, false);
-  assert.equal(byId['decision-points-have-branches'].passed, false);
-  assert.equal(byId['decision-branch-targets-exist'].passed, false);
+  assert.equal(byId['dependency-forward-reference'].passed, false);
+  assert.equal(byId['decision-points-duplicate-conditions'].passed, false);
   assert.equal(byId['feedback-loop-exit-condition'].passed, false);
-  assert.equal(byId['unreachable-steps'].passed, false);
-  assert.equal(byId['end-to-end-path-exists'].passed, false);
+  assert.equal(byId['retry-mechanism-has-limit'].passed, false);
+  assert.equal(byId['feedback-loop-target-step-exists'].passed, false);
+  assert.equal(byId['missing-declared-outputs'].passed, false);
 
   // Base rules still run alongside process rules for multi_step_process.
-  assert.equal(byId['undefined-tool-dependency'].passed, false);
   assert.equal(byId['no-failure-handling-declared'].passed, false);
   assert.equal(byId['vague-language'].passed, false);
+  assert.equal(byId['tool-dependency-orphaned-script'].passed, false);
 
   assert.ok(output.findings.some((f) => f.metric === 'exit_conditions' && f.severity === 'HIGH'));
   assert.ok(output.findings.some((f) => f.metric === 'dependency_management' && f.severity === 'HIGH'));
   assert.ok(output.findings.some((f) => f.metric === 'dead_end_detection'));
+
+  // The step-9 reference doesn't exist, so dependency-forward-reference must
+  // not also mislabel it as merely "out of order" (dependency-references-valid
+  // already reports it correctly) — only the genuine 5->2 forward reference
+  // should surface here.
+  const forwardRefFindings = output.findings.filter((f) => f.metric === 'process_transitions' && f.problem.includes('referenziert einen später'));
+  assert.equal(forwardRefFindings.length, 1);
 });
 
 test('evaluateSkill validates its input against the documented contract', () => {
@@ -141,4 +153,20 @@ test('evaluateSkill tolerates a minimal/degraded analyzer output (missing option
   });
   assertContractShape(output);
   assert.equal(output.test_results.length, baseRules.length);
+});
+
+test('integration: evaluateSkill runs end-to-end against the real Analyzer output (src/analyzer)', () => {
+  // Regression guard for exactly the kind of contract drift that motivated
+  // this rewrite: run the actual Module 1 analyzer against its own shared
+  // fixtures and feed the real output straight into evaluateSkill.
+  const { analyzeSkill } = require('../../analyzer');
+  const repoRoot = path.join(__dirname, '..', '..', '..');
+
+  const simple = evaluateSkill(analyzeSkill(path.join(repoRoot, 'fixtures', 'simple-skill')));
+  assertContractShape(simple);
+  assert.equal(simple.complexity_class, 'simple');
+
+  const multiStep = evaluateSkill(analyzeSkill(path.join(repoRoot, 'fixtures', 'multi-step-skill')));
+  assertContractShape(multiStep);
+  assert.equal(multiStep.complexity_class, 'multi_step_process');
 });

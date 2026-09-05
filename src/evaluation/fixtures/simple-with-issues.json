@@ -2,32 +2,39 @@
   "skill_path": "fixtures/simple-skill-with-issues",
   "structure": {
     "has_skill_md": true,
-    "resources": ["references/unused-notes.md"],
-    "instruction_count": 7,
-    "step_count": 1,
-    "full_text": "Vielleicht solltest du versuchen, den Text zusammenzufassen. Fasse den Text in eigenen Worten zusammen. Kurz. Fasse den Text in eigenen Worten zusammen. Der Assistent muss immer den Originaltext im Original zitieren. Der Assistent darf niemals den Originaltext im Original zitieren.",
-    "instructions": [
-      { "id": "i1", "text": "Vielleicht solltest du versuchen, den Text zusammenzufassen.", "section": "Ablauf", "order": 0 },
-      { "id": "i2", "text": "Fasse den Text in eigenen Worten zusammen.", "section": "Ablauf", "order": 1 },
-      { "id": "i3", "text": "Kurz.", "section": "Ablauf", "order": 2 },
-      { "id": "i4", "text": "Fasse den Text in eigenen Worten zusammen.", "section": "Ablauf", "order": 3 },
-      { "id": "i5", "text": "Der Assistent muss immer den Originaltext im Original zitieren.", "section": "Regeln", "order": 4 },
-      { "id": "i6", "text": "Der Assistent darf niemals den Originaltext im Original zitieren.", "section": "Regeln", "order": 5 },
+    "resources": ["scripts/"],
+    "purpose": "Kurz gesagt.",
+    "instruction_count": 2,
+    "step_count": 2,
+    "steps": [
+      { "id": 1, "description": "Vielleicht den Text bereinigen.", "location": "SKILL.md:5", "tools": [], "references_steps": [] },
+      { "id": 2, "description": "Das Ergebnis wird zurückgegeben.", "location": "SKILL.md:6", "tools": [], "references_steps": [] }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "tool_dependencies": ["scripts/helper.py"],
+    "decision_points": [
+      { "location": "SKILL.md:10", "condition": "Wenn der Text leer ist, eventuell abbrechen." },
+      { "location": "SKILL.md:22", "condition": "Das System darf niemals eine Fehlermeldung ausgeben, wenn die Eingabe leer ist." },
       {
-        "id": "i7",
-        "text": "Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel. Dies ist ein langer Testsatz zur Pruefung der Token-Effizienz-Regel.",
-        "section": "Hintergrund",
-        "order": 6
+        "location": "SKILL.md:24",
+        "condition": "Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel. Dies ist eine sehr lange Bedingung zur Prüfung der Kontexteffizienz-Regel."
       }
     ],
-    "dependencies": [],
-    "tool_dependencies": [
-      { "tool": "web_search", "referenced_in": "i2", "defined": false }
+    "feedback_loops": [
+      { "location": "SKILL.md:12", "detail": "Wiederhole den Vorgang, bis das Ergebnis passt." }
     ],
-    "decision_points": [],
-    "feedback_loops": [],
-    "failure_handling": []
+    "retry_mechanisms": [
+      { "location": "SKILL.md:12", "detail": "Wiederhole den Vorgang, bis das Ergebnis passt." }
+    ],
+    "failure_handling": [
+      { "location": "SKILL.md:14", "detail": "Kurz." },
+      { "location": "SKILL.md:16", "detail": "Wenn der Text leer ist, sofort abbrechen und den Nutzer informieren." },
+      { "location": "SKILL.md:18", "detail": "Wenn der Text leer ist, sofort abbrechen und den Nutzer informieren." },
+      { "location": "SKILL.md:20", "detail": "Das System muss immer eine Fehlermeldung ausgeben, wenn die Eingabe leer ist." }
+    ]
   },
   "complexity_class": "simple",
-  "complexity_signals": ["single linear task", "no decision points", "no feedback loops"]
+  "complexity_signals": ["Below the multi-step threshold, but contains a couple of conditional/retry lines."]
 }

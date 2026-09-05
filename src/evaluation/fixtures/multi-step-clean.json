@@ -3,35 +3,35 @@
   "structure": {
     "has_skill_md": true,
     "resources": [],
+    "purpose": "Verarbeitet eine Liste oder einen Einzelwert und erstellt eine zusammengefasste Ausgabe.",
     "instruction_count": 6,
     "step_count": 6,
-    "instructions": [
-      { "id": "j1", "text": "Lies die Rohdaten ein und bestimme deren Format.", "section": "Eingabe", "order": 0 },
-      { "id": "j2", "text": "Prüfe, ob alle Pflichtfelder vorhanden und gültig sind.", "section": "Validierung", "order": 1 },
-      { "id": "j3", "text": "Analysiere, ob die Eingabe eine Liste oder ein Einzelwert ist.", "section": "Verzweigung", "order": 2 },
-      { "id": "j4", "text": "Verarbeite jedes Listenelement einzeln und sammle die Ergebnisse.", "section": "Verarbeitung", "order": 3 },
-      { "id": "j5", "text": "Verarbeite den Einzelwert direkt.", "section": "Verarbeitung", "order": 4 },
-      { "id": "j6", "text": "Erstelle die zusammengefasste Ausgabe aus den gesammelten Ergebnissen.", "section": "Ausgabe", "order": 5 }
+    "steps": [
+      { "id": 1, "description": "Lies die Rohdaten ein und bestimme deren Format.", "location": "SKILL.md:1", "tools": [], "references_steps": [] },
+      { "id": 2, "description": "Prüfe, ob alle Pflichtfelder vorhanden und gültig sind.", "location": "SKILL.md:2", "tools": [], "references_steps": [] },
+      { "id": 3, "description": "Analysiere, ob die Eingabe eine Liste oder ein Einzelwert ist.", "location": "SKILL.md:3", "tools": [], "references_steps": [] },
+      { "id": 4, "description": "Verarbeite jedes Listenelement einzeln, wie in Schritt 3 vorbereitet.", "location": "SKILL.md:4", "tools": [], "references_steps": [3] },
+      { "id": 5, "description": "Verarbeite den Einzelwert direkt, wie in Schritt 3 vorbereitet.", "location": "SKILL.md:5", "tools": [], "references_steps": [3] },
+      { "id": 6, "description": "Erstelle die zusammengefasste Ausgabe aus Schritt 4 und Schritt 5.", "location": "SKILL.md:6", "tools": [], "references_steps": [4, 5] }
     ],
+    "inputs": ["Ein beliebiges Eingabeobjekt (Liste oder Einzelwert)."],
+    "outputs": ["Eine zusammengefasste Ausgabe als Text."],
     "dependencies": [
-      { "id": "d1", "from": "j1", "to": "j2", "type": "step" },
-      { "id": "d2", "from": "j2", "to": "j3", "type": "step" },
-      { "id": "d3", "from": "j4", "to": "j6", "type": "step" },
-      { "id": "d4", "from": "j5", "to": "j6", "type": "step" }
+      { "from_step": 3, "to_step": 4, "detail": "Step 4 references step 3" },
+      { "from_step": 3, "to_step": 5, "detail": "Step 5 references step 3" },
+      { "from_step": 4, "to_step": 6, "detail": "Step 6 references step 4" },
+      { "from_step": 5, "to_step": 6, "detail": "Step 6 references step 5" }
     ],
-    "tool_dependencies": [
-      { "tool": "file_reader", "referenced_in": "j1", "defined": true }
-    ],
+    "tool_dependencies": [],
     "decision_points": [
-      { "id": "dp1", "condition": "Ist der Input eine Liste?", "branches": ["j4", "j5"], "instruction_id": "j3" }
+      { "location": "SKILL.md:3", "condition": "Ist die Eingabe eine Liste oder ein Einzelwert?" }
     ],
-    "feedback_loops": [
-      { "id": "fl1", "trigger": "Validierung schlaegt fehl", "exit_condition": "Nach maximal 3 Versuchen oder bestandener Validierung", "instruction_id": "j2" }
-    ],
+    "feedback_loops": [],
+    "retry_mechanisms": [],
     "failure_handling": [
-      { "id": "fh1", "scenario": "Tool nicht verfuegbar", "handler": "Nutzer informieren und Ablauf abbrechen.", "instruction_id": "j2" }
+      { "location": "SKILL.md:7", "detail": "Bei einem ungültigen Format sofort mit einer klaren Fehlermeldung abbrechen." }
     ]
   },
   "complexity_class": "multi_step_process",
-  "complexity_signals": ["multiple connected steps", "decision point with two branches", "feedback loop with exit condition"]
+  "complexity_signals": ["Detected 6 ordered steps.", "Found 1 decision point.", "Found 4 explicit inter-step dependency references."]
 }

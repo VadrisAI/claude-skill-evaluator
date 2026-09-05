@@ -1,7 +1,8 @@
 'use strict';
 
 const { createFinding } = require('../findings');
-const { containsVagueLanguage, looksImperative, jaccardSimilarity, normalize } = require('../textUtils');
+const { containsVagueLanguage, looksImperative, jaccardSimilarity } = require('../textUtils');
+const { collectTextUnits } = require('../structureText');
 
 function arr(x) {
   return Array.isArray(x) ? x : [];
@@ -9,8 +10,16 @@ function arr(x) {
 
 /**
  * Base rules: apply to every skill regardless of complexity_class.
- * Each rule returns { passed, detail, findings } from evaluate(structure, ctx).
- * `ctx.skillPath` is available for the "location" wording where useful.
+ * Each rule returns { passed, detail, findings } from evaluate(structure).
+ *
+ * These are written against the real Analyzer output shape (src/analyzer/,
+ * merged in PR #1): `steps[]` with numeric ids, flat `tool_dependencies[]`
+ * strings with no defined/undefined flag, and `decision_points` /
+ * `feedback_loops` / `retry_mechanisms` / `failure_handling` as
+ * `{location, condition|detail}` keyword-scanned lines rather than
+ * structured objects with branches/exit-condition/ids. See
+ * docs/architecture.md's "1 -> 2" section and its 2026-09-05 (Module 2)
+ * note for what that does and doesn't let this module check.
  */
 const baseRules = [
   {
@@ -56,14 +65,45 @@ const baseRules = [
           createFinding({
             area: 'Instructions',
             location: 'Gesamter Skill',
-            problem: 'Der Skill enthält keine erkennbaren Instruktionen.',
-            cause: 'Der Inhalt der SKILL.md besteht nicht aus vom Analyzer erkennbaren Anweisungen (z.B. leere Datei oder rein beschreibender Text ohne Handlungsanweisungen).',
+            problem: 'Der Skill enthält keine erkennbaren Instruktionen (Listenpunkte).',
+            cause: 'Der Inhalt der SKILL.md besteht nicht aus vom Analyzer erkennbaren Anweisungen (z.B. leere Datei oder rein beschreibender Fließtext ohne Liste).',
             impact: 'Claude erhält keine konkrete Anleitung, was beim Aktivieren des Skills zu tun ist.',
             improvement_direction: 'Konkrete, handlungsorientierte Anweisungen ergänzen, die beschreiben, was bei Aktivierung des Skills zu tun ist.',
-            watch_for: 'Beschreibender Fließtext allein reicht nicht aus; es braucht ausführbare Schritte.',
+            watch_for: 'Beschreibender Fließtext allein reicht nicht aus; es braucht ausführbare Schritte, idealerweise als Liste.',
             context: 'Analyzer-Ergebnis: structure.instruction_count = 0.',
             severity: 'CRITICAL',
             metric: 'instruction_quality',
+          }),
+        ],
+      };
+    },
+  },
+
+  {
+    id: 'purpose-declared',
+    metric: 'completeness',
+    testCategory: 'standard',
+    evaluate(structure) {
+      const purpose = typeof structure.purpose === 'string' ? structure.purpose.trim() : '';
+      const passed = purpose.length >= 15;
+      if (passed) return { passed, detail: 'Ein Zweck (Purpose) wurde erkannt.', findings: [] };
+      return {
+        passed,
+        detail: purpose ? 'Der erkannte Zweck ist auffällig kurz.' : 'Kein Zweck (Purpose) erkennbar.',
+        findings: [
+          createFinding({
+            area: 'Zweckbeschreibung',
+            location: 'Frontmatter "description" bzw. erster Absatz der SKILL.md',
+            problem: purpose
+              ? 'Der erkannte Zweck des Skills ist sehr kurz und wahrscheinlich uninformativ.'
+              : 'Es konnte kein Zweck des Skills erkannt werden.',
+            cause: 'Die Frontmatter-"description" fehlt oder ist leer, und auch der erste Absatz des Dokuments liefert keine brauchbare Zusammenfassung.',
+            impact: 'Ohne erkennbaren Zweck kann weder Claude noch ein Nutzer schnell einschätzen, wofür der Skill gedacht ist und wann er greifen sollte.',
+            improvement_direction: 'Eine kurze, aussagekräftige Zweckbeschreibung in der Frontmatter ("description") oder im ersten Absatz ergänzen.',
+            watch_for: 'Die Beschreibung sollte konkret sagen, was der Skill tut und wann er verwendet werden soll, nicht nur einen Titel wiederholen.',
+            context: `Erkannter Wert: ${purpose ? `"${purpose}"` : '(leer)'}`,
+            severity: 'MEDIUM',
+            metric: 'completeness',
           }),
         ],
       };
@@ -75,19 +115,19 @@ const baseRules = [
     metric: 'precision',
     testCategory: 'ambiguous',
     evaluate(structure) {
-      const instructions = arr(structure.instructions);
-      const hits = instructions.filter((i) => i && typeof i.text === 'string' && containsVagueLanguage(i.text));
+      const units = collectTextUnits(structure);
+      const hits = units.filter((u) => containsVagueLanguage(u.text));
       const passed = hits.length === 0;
-      const findings = hits.map((i) =>
+      const findings = hits.map((u) =>
         createFinding({
           area: 'Instruction-Präzision',
-          location: `Instruction "${i.id ?? '(ohne id)'}"${i.section ? ` (Abschnitt: ${i.section})` : ''}`,
-          problem: 'Die Instruction enthält unpräzise/vage Formulierungen (z.B. "vielleicht", "eventuell", "try to").',
-          cause: 'Weiche Formulierungen statt klarer, verbindlicher Handlungsanweisungen.',
+          location: u.location,
+          problem: 'An dieser Stelle wird eine unpräzise/vage Formulierung verwendet (z.B. "vielleicht", "eventuell", "try to").',
+          cause: 'Weiche Formulierungen statt einer klaren, verbindlichen Handlungsanweisung.',
           impact: 'Claude kann das gewünschte Verhalten unterschiedlich interpretieren, was zu inkonsistentem Verhalten zwischen Ausführungen führt.',
-          improvement_direction: 'Vage Formulierungen durch eindeutige, verbindliche Anweisungen ersetzen (klar festlegen, was in welchem Fall zu tun ist, statt Möglichkeiten offenzulassen).',
+          improvement_direction: 'Die vage Formulierung durch eine eindeutige, verbindliche Anweisung ersetzen (klar festlegen, was in welchem Fall zu tun ist, statt Möglichkeiten offenzulassen).',
           watch_for: 'Nicht jede Unsicherheit lässt sich vermeiden; wo eine Bedingung tatsächlich optional ist, sollte das explizit als Bedingung (nicht als vage Formulierung) ausgedrückt werden.',
-          context: `Erkannter Text (Ausschnitt): "${i.text.slice(0, 160)}"`,
+          context: `Erkannter Text (Ausschnitt): "${u.text.slice(0, 160)}"`,
           severity: 'MEDIUM',
           metric: 'precision',
         }),
@@ -96,7 +136,7 @@ const baseRules = [
         passed,
         detail: passed
           ? 'Keine vagen Formulierungen gefunden.'
-          : `${hits.length} von ${instructions.length} Instruktionen enthalten vage Formulierungen.`,
+          : `${hits.length} von ${units.length} geprüften Textstellen enthalten vage Formulierungen.`,
         findings,
       };
     },
@@ -107,26 +147,26 @@ const baseRules = [
     metric: 'clarity',
     testCategory: 'standard',
     evaluate(structure) {
-      const instructions = arr(structure.instructions);
-      const hits = instructions.filter((i) => i && typeof i.text === 'string' && i.text.trim().length > 0 && i.text.trim().length < 15);
+      const units = collectTextUnits(structure);
+      const hits = units.filter((u) => u.text.trim().length > 0 && u.text.trim().length < 15);
       const passed = hits.length === 0;
-      const findings = hits.map((i) =>
+      const findings = hits.map((u) =>
         createFinding({
           area: 'Instruction-Klarheit',
-          location: `Instruction "${i.id ?? '(ohne id)'}"${i.section ? ` (Abschnitt: ${i.section})` : ''}`,
-          problem: 'Die Instruction ist auffällig kurz und liefert wahrscheinlich zu wenig Kontext.',
+          location: u.location,
+          problem: 'Die Textstelle ist auffällig kurz und liefert wahrscheinlich zu wenig Kontext.',
           cause: 'Die Anweisung besteht nur aus wenigen Wörtern ohne erkennbare Handlungsdetails.',
           impact: 'Zu knappe Instruktionen lassen Interpretationsspielraum und erschweren zuverlässiges Verhalten.',
-          improvement_direction: 'Prüfen, ob die Instruction genug Kontext enthält (was, wann, womit), und bei Bedarf ausführen.',
+          improvement_direction: 'Prüfen, ob die Stelle genug Kontext enthält (was, wann, womit), und bei Bedarf ausführen.',
           watch_for: 'Kürze allein ist kein Fehler, wenn der Kontext an anderer Stelle im Skill eindeutig hergestellt wird.',
-          context: `Erkannter Text: "${i.text.trim()}"`,
+          context: `Erkannter Text: "${u.text.trim()}"`,
           severity: 'LOW',
           metric: 'clarity',
         }),
       );
       return {
         passed,
-        detail: passed ? 'Keine auffällig kurzen Instruktionen gefunden.' : `${hits.length} auffällig kurze Instruktion(en) gefunden.`,
+        detail: passed ? 'Keine auffällig kurzen Textstellen gefunden.' : `${hits.length} auffällig kurze Textstelle(n) gefunden.`,
         findings,
       };
     },
@@ -137,26 +177,26 @@ const baseRules = [
     metric: 'context_efficiency',
     testCategory: 'boundary',
     evaluate(structure) {
-      const instructions = arr(structure.instructions);
-      const hits = instructions.filter((i) => i && typeof i.text === 'string' && i.text.length > 800);
+      const units = collectTextUnits(structure);
+      const hits = units.filter((u) => u.text.length > 800);
       const passed = hits.length === 0;
-      const findings = hits.map((i) =>
+      const findings = hits.map((u) =>
         createFinding({
           area: 'Kontext-/Token-Effizienz',
-          location: `Instruction "${i.id ?? '(ohne id)'}"${i.section ? ` (Abschnitt: ${i.section})` : ''}`,
-          problem: 'Die Instruction ist sehr lang (über 800 Zeichen am Stück).',
-          cause: 'Mehrere Anweisungen oder viel Kontext wurden in einem einzigen Instruction-Block zusammengefasst.',
+          location: u.location,
+          problem: 'Die Textstelle ist sehr lang (über 800 Zeichen am Stück).',
+          cause: 'Mehrere Anweisungen oder viel Kontext wurden in einem einzigen Abschnitt zusammengefasst.',
           impact: 'Lange, unstrukturierte Blöcke erhöhen den Token-Verbrauch und erschweren es, einzelne Teilanweisungen zuverlässig zu befolgen.',
           improvement_direction: 'Prüfen, ob sich der Block in kleinere, klar benannte Teilschritte oder eine Referenzdatei auslagern lässt.',
           watch_for: 'Nicht jede lange Passage ist ein Problem, z.B. wenn es sich um notwendige Beispieldaten handelt.',
-          context: `Länge: ${i.text.length} Zeichen.`,
+          context: `Länge: ${u.text.length} Zeichen.`,
           severity: 'MEDIUM',
           metric: 'context_efficiency',
         }),
       );
       return {
         passed,
-        detail: passed ? 'Keine übermäßig langen Instruktionen gefunden.' : `${hits.length} übermäßig lange Instruktion(en) gefunden.`,
+        detail: passed ? 'Keine übermäßig langen Textstellen gefunden.' : `${hits.length} übermäßig lange Textstelle(n) gefunden.`,
         findings,
       };
     },
@@ -167,24 +207,24 @@ const baseRules = [
     metric: 'redundancy',
     testCategory: 'standard',
     evaluate(structure) {
-      const instructions = arr(structure.instructions).filter((i) => i && typeof i.text === 'string' && i.text.trim() !== '');
+      const units = collectTextUnits(structure).filter((u) => u.text.trim() !== '');
       const findings = [];
       const reportedPairs = new Set();
-      for (let a = 0; a < instructions.length; a += 1) {
-        for (let b = a + 1; b < instructions.length; b += 1) {
-          const similarity = jaccardSimilarity(instructions[a].text, instructions[b].text);
+      for (let a = 0; a < units.length; a += 1) {
+        for (let b = a + 1; b < units.length; b += 1) {
+          const similarity = jaccardSimilarity(units[a].text, units[b].text);
           if (similarity >= 0.85) {
-            const pairKey = `${instructions[a].id}::${instructions[b].id}`;
+            const pairKey = `${units[a].location}::${units[b].location}`;
             if (reportedPairs.has(pairKey)) continue;
             reportedPairs.add(pairKey);
             findings.push(
               createFinding({
                 area: 'Redundanz',
-                location: `Instructions "${instructions[a].id}" und "${instructions[b].id}"`,
-                problem: 'Zwei Instruktionen sind inhaltlich nahezu identisch.',
+                location: `${units[a].location} und ${units[b].location}`,
+                problem: 'Zwei Textstellen sind inhaltlich nahezu identisch.',
                 cause: 'Der Inhalt wurde vermutlich kopiert oder an zwei Stellen unabhängig formuliert.',
                 impact: 'Redundante Anweisungen erhöhen den Token-Verbrauch und schaffen Risiko für künftige Inkonsistenz, wenn nur eine Kopie gepflegt wird.',
-                improvement_direction: 'Prüfen, ob eine der beiden Instruktionen entfernt oder beide zusammengeführt werden können.',
+                improvement_direction: 'Prüfen, ob eine der beiden Stellen entfernt oder beide zusammengeführt werden können.',
                 watch_for: 'Absichtliche Wiederholung zur Betonung eines kritischen Punkts ist nicht automatisch ein Fehler.',
                 context: `Textähnlichkeit (Jaccard über Wortmengen): ${similarity.toFixed(2)}.`,
                 severity: 'MEDIUM',
@@ -196,7 +236,7 @@ const baseRules = [
       }
       return {
         passed: findings.length === 0,
-        detail: findings.length === 0 ? 'Keine nahezu identischen Instruktionspaare gefunden.' : `${findings.length} redundante(s) Instruktionspaar(e) gefunden.`,
+        detail: findings.length === 0 ? 'Keine nahezu identischen Textstellen-Paare gefunden.' : `${findings.length} redundante(s) Paar(e) gefunden.`,
         findings,
       };
     },
@@ -207,26 +247,26 @@ const baseRules = [
     metric: 'contradictions',
     testCategory: 'consistency',
     evaluate(structure) {
-      const instructions = arr(structure.instructions).filter((i) => i && typeof i.text === 'string');
+      const units = collectTextUnits(structure);
       const alwaysRe = /\b(immer|always)\b/i;
       const neverRe = /\b(nie|niemals|never)\b/i;
-      const alwaysInstr = instructions.filter((i) => alwaysRe.test(i.text));
-      const neverInstr = instructions.filter((i) => neverRe.test(i.text));
+      const alwaysUnits = units.filter((u) => alwaysRe.test(u.text));
+      const neverUnits = units.filter((u) => neverRe.test(u.text));
       const findings = [];
       const reported = new Set();
-      for (const a of alwaysInstr) {
-        for (const n of neverInstr) {
-          if (a.id === n.id) continue;
+      for (const a of alwaysUnits) {
+        for (const n of neverUnits) {
+          if (a.location === n.location) continue;
           const similarity = jaccardSimilarity(a.text, n.text);
           if (similarity >= 0.4) {
-            const key = `${a.id}::${n.id}`;
+            const key = `${a.location}::${n.location}`;
             if (reported.has(key)) continue;
             reported.add(key);
             findings.push(
               createFinding({
                 area: 'Widersprüche',
-                location: `Instructions "${a.id}" und "${n.id}"`,
-                problem: 'Eine Instruction verwendet "immer"/"always", eine inhaltlich ähnliche andere "nie"/"never" zu einem überlappenden Thema.',
+                location: `${a.location} und ${n.location}`,
+                problem: 'Eine Textstelle verwendet "immer"/"always", eine inhaltlich ähnliche andere "nie"/"never" zu einem überlappenden Thema.',
                 cause: 'Mögliche widersprüchliche Regeln, die zu unterschiedlichen Zeitpunkten oder von unterschiedlichen Autoren formuliert wurden.',
                 impact: 'Widersprüchliche Regeln erzeugen unvorhersehbares Verhalten, da unklar ist, welche Regel Vorrang hat.',
                 improvement_direction: 'Beide Stellen gegenüberstellen und klären, ob tatsächlich ein Widerspruch vorliegt; falls ja, eine eindeutige Regel mit klar definierten Ausnahmen formulieren.',
@@ -242,36 +282,6 @@ const baseRules = [
       return {
         passed: findings.length === 0,
         detail: findings.length === 0 ? 'Keine offensichtlichen immer/nie-Widersprüche gefunden.' : `${findings.length} möglicher Widerspruch/Widersprüche gefunden.`,
-        findings,
-      };
-    },
-  },
-
-  {
-    id: 'undefined-tool-dependency',
-    metric: 'misconfiguration_risk',
-    testCategory: 'failure',
-    evaluate(structure) {
-      const tools = arr(structure.tool_dependencies);
-      const hits = tools.filter((t) => t && t.defined === false);
-      const passed = hits.length === 0;
-      const findings = hits.map((t) =>
-        createFinding({
-          area: 'Tool-Abhängigkeiten',
-          location: `Tool "${t.tool ?? '(unbenannt)'}" referenziert in "${t.referenced_in ?? '(unbekannt)'}"`,
-          problem: 'Ein referenziertes Tool ist als nicht eindeutig definiert/verfügbar markiert.',
-          cause: 'Das Tool wird in einer Instruction verwendet, ist aber nicht klar deklariert, verfügbar oder mit den erwarteten Berechtigungen versehen.',
-          impact: 'Der Skill kann zur Laufzeit fehlschlagen oder ein falsches Tool aufrufen, wenn die Abhängigkeit unklar bleibt.',
-          improvement_direction: 'Tool-Abhängigkeiten explizit auflisten und deren Verfügbarkeit/Berechtigungen dokumentieren.',
-          watch_for: 'Auch optionale/alternative Tools sollten als solche gekennzeichnet werden, statt implizit vorausgesetzt zu werden.',
-          context: `Analyzer-Ergebnis: defined=false für dieses Tool.`,
-          severity: 'HIGH',
-          metric: 'misconfiguration_risk',
-        }),
-      );
-      return {
-        passed,
-        detail: passed ? 'Alle referenzierten Tools sind eindeutig definiert.' : `${hits.length} unklar definierte Tool-Abhängigkeit(en) gefunden.`,
         findings,
       };
     },
@@ -314,67 +324,105 @@ const baseRules = [
     metric: 'instruction_quality',
     testCategory: 'instruction_following',
     evaluate(structure) {
-      const instructions = arr(structure.instructions).filter((i) => i && typeof i.text === 'string' && i.text.trim() !== '');
-      if (instructions.length === 0) {
-        return { passed: true, detail: 'Keine Instruktionen zu prüfen.', findings: [] };
+      const steps = arr(structure.steps).filter((s) => s && typeof s.description === 'string' && s.description.trim() !== '');
+      if (steps.length === 0) {
+        return { passed: true, detail: 'Keine nummerierten Schritte zu prüfen.', findings: [] };
       }
-      const imperativeCount = instructions.filter((i) => looksImperative(i.text)).length;
-      const ratio = imperativeCount / instructions.length;
+      const imperativeCount = steps.filter((s) => looksImperative(s.description)).length;
+      const ratio = imperativeCount / steps.length;
       const passed = ratio >= 0.5;
       const findings = passed
         ? []
         : [
             createFinding({
               area: 'Instruction-Following',
-              location: 'Gesamter Instruktionssatz',
-              problem: 'Ein Großteil der Instruktionen beginnt nicht mit einer erkennbaren, handlungsorientierten Formulierung (Imperativ).',
-              cause: 'Instruktionen sind eher beschreibend/erklärend formuliert statt als direkte Handlungsanweisung.',
-              impact: 'Beschreibende statt handlungsorientierte Formulierungen können dazu führen, dass Claude eine Anweisung als Hintergrundinformation statt als auszuführenden Schritt interpretiert.',
-              improvement_direction: 'Prüfen, welche Instruktionen als konkrete Handlung (z.B. mit einem Verb beginnend) umformuliert werden sollten.',
-              watch_for: 'Dies ist eine heuristische Prüfung auf Basis eines Verb-Musters am Satzanfang; sie kann bei stilistisch abweichenden, aber klaren Instruktionen einen Fehlalarm liefern.',
-              context: `${imperativeCount} von ${instructions.length} Instruktionen wurden als imperativ erkannt (Schwelle: 50%).`,
+              location: 'Schritt-Sequenz',
+              problem: 'Ein Großteil der Schritte beginnt nicht mit einer erkennbaren, handlungsorientierten Formulierung (Imperativ).',
+              cause: 'Schritte sind eher beschreibend/erklärend formuliert statt als direkte Handlungsanweisung.',
+              impact: 'Beschreibende statt handlungsorientierte Formulierungen können dazu führen, dass Claude einen Schritt als Hintergrundinformation statt als auszuführende Handlung interpretiert.',
+              improvement_direction: 'Prüfen, welche Schritte als konkrete Handlung (z.B. mit einem Verb beginnend) umformuliert werden sollten.',
+              watch_for: 'Dies ist eine heuristische Prüfung auf Basis eines Verb-Musters am Satzanfang; sie kann bei stilistisch abweichenden, aber klaren Schritten einen Fehlalarm liefern.',
+              context: `${imperativeCount} von ${steps.length} Schritten wurden als imperativ erkannt (Schwelle: 50%).`,
               severity: 'LOW',
               metric: 'instruction_quality',
             }),
           ];
       return {
         passed,
-        detail: `${imperativeCount} von ${instructions.length} Instruktionen wirken handlungsorientiert formuliert.`,
+        detail: `${imperativeCount} von ${steps.length} Schritten wirken handlungsorientiert formuliert.`,
         findings,
       };
     },
   },
 
   {
-    id: 'declared-resources-unreferenced',
+    id: 'tool-dependency-orphaned-script',
     metric: 'misconfiguration_risk',
     testCategory: 'standard',
     evaluate(structure) {
-      const resources = arr(structure.resources);
-      if (resources.length === 0 || typeof structure.full_text !== 'string') {
-        return { passed: true, detail: 'Keine Ressourcen deklariert oder kein Volltext zur Prüfung verfügbar.', findings: [] };
+      const toolDependencies = arr(structure.tool_dependencies).filter((t) => typeof t === 'string');
+      const scriptTools = toolDependencies.filter((t) => /^scripts[/\\]/.test(t));
+      if (scriptTools.length === 0) {
+        return { passed: true, detail: 'Keine Script-Dateien unter tool_dependencies gefunden.', findings: [] };
       }
-      const text = structure.full_text.toLowerCase();
-      const unreferenced = resources.filter((r) => typeof r === 'string' && !text.includes(r.toLowerCase().replace(/\/$/, '')));
-      const passed = unreferenced.length === 0;
-      const findings = unreferenced.map((r) =>
+      const referencedInSteps = new Set();
+      for (const step of arr(structure.steps)) {
+        for (const tool of arr(step && step.tools)) referencedInSteps.add(tool);
+      }
+      const orphaned = scriptTools.filter((t) => !referencedInSteps.has(t));
+      const passed = orphaned.length === 0;
+      const findings = orphaned.map((t) =>
         createFinding({
-          area: 'Ressourcen-Nutzung',
-          location: `Ressource "${r}"`,
-          problem: 'Eine deklarierte Ressource wird im sichtbaren Skill-Text nicht referenziert.',
-          cause: 'Die Ressource wurde angelegt, aber keine Instruction verweist erkennbar darauf.',
-          impact: 'Ungenutzte Ressourcen deuten auf tote Dateien oder eine fehlende Verknüpfung hin, wodurch Claude die Ressource möglicherweise nie lädt.',
-          improvement_direction: 'Prüfen, ob die Ressource tatsächlich benötigt wird, und falls ja, eine Instruction ergänzen, die sie referenziert.',
-          watch_for: 'Diese Prüfung ist rein textbasiert (Namens-/Pfad-Erwähnung); indirekte Referenzierung über generische Beschreibungen wird nicht erkannt.',
-          context: `Deklarierte Ressourcen: ${resources.join(', ')}.`,
+          area: 'Tool-/Skript-Abhängigkeiten',
+          location: `Ressource "${t}"`,
+          problem: 'Ein Skript liegt im Skill-Verzeichnis, wird aber von keinem erkannten Schritt referenziert.',
+          cause: 'Das Skript wurde angelegt, aber keine Instruction verweist erkennbar (per Backtick-Referenz) darauf.',
+          impact: 'Ein nicht referenziertes Skript deutet auf toten Code oder eine fehlende Verknüpfung hin — Claude wird es beim Ausführen des Skills möglicherweise nie aufrufen.',
+          improvement_direction: 'Prüfen, ob das Skript tatsächlich benötigt wird, und falls ja, einen Schritt ergänzen, der es referenziert.',
+          watch_for: 'Diese Prüfung ist rein textbasiert (Backtick-Erwähnung in einem Schritt); ein Skript, das nur von einem anderen Skript aus aufgerufen wird, kann fälschlich als verwaist erscheinen.',
+          context: `Erkannte tool_dependencies: ${toolDependencies.join(', ')}.`,
           severity: 'LOW',
           metric: 'misconfiguration_risk',
         }),
       );
       return {
         passed,
-        detail: passed ? 'Alle deklarierten Ressourcen werden referenziert.' : `${unreferenced.length} deklarierte Ressource(n) ohne erkennbare Referenz.`,
+        detail: passed ? 'Alle Script-Dateien werden von mindestens einem Schritt referenziert.' : `${orphaned.length} verwaiste Script-Datei(en) gefunden.`,
         findings,
+      };
+    },
+  },
+
+  {
+    id: 'inputs-or-outputs-undeclared',
+    metric: 'completeness',
+    testCategory: 'standard',
+    evaluate(structure) {
+      const stepCount = structure.step_count || 0;
+      if (stepCount === 0) {
+        return { passed: true, detail: 'Keine Schritt-Sequenz erkannt; Inputs/Outputs-Prüfung nicht anwendbar.', findings: [] };
+      }
+      const inputs = arr(structure.inputs);
+      const outputs = arr(structure.outputs);
+      const passed = inputs.length > 0 || outputs.length > 0;
+      if (passed) return { passed, detail: 'Inputs und/oder Outputs sind dokumentiert.', findings: [] };
+      return {
+        passed,
+        detail: 'Weder Inputs noch Outputs sind erkennbar dokumentiert.',
+        findings: [
+          createFinding({
+            area: 'Vollständigkeit',
+            location: 'Abschnitte "Inputs"/"Outputs" (bzw. deren Fehlen)',
+            problem: 'Der Skill hat eine Schritt-Sequenz, dokumentiert aber weder erwartete Inputs noch erzeugte Outputs.',
+            cause: 'Es fehlt ein Abschnitt (z.B. "## Inputs" / "## Outputs"), der beschreibt, was der Skill erwartet bzw. liefert.',
+            impact: 'Ohne dokumentierte Inputs/Outputs ist unklar, welche Daten der Skill benötigt und was er am Ende zurückgibt — das erschwert sowohl die Nutzung als auch die Integration in größere Abläufe.',
+            improvement_direction: 'Kurze Abschnitte ergänzen, die die erwarteten Eingaben und die erzeugten Ausgaben des Skills benennen.',
+            watch_for: 'Für sehr einfache Skills kann dies implizit aus dem Fließtext hervorgehen; dann reicht ein kurzer expliziter Hinweis statt eines eigenen Abschnitts.',
+            context: `Analyzer-Ergebnis: step_count=${stepCount}, inputs=[], outputs=[].`,
+            severity: 'LOW',
+            metric: 'completeness',
+          }),
+        ],
       };
     },
   },

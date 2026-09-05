@@ -30,6 +30,7 @@ src/evaluation/
 ├── criteria.js        # applicable_metrics selection by complexity_class
 ├── findings.js         # the 8-field finding builder + validation
 ├── textUtils.js        # shared text heuristics (vague language, imperative check, similarity)
+├── structureText.js     # collectTextUnits(structure): dedupes steps/decision/feedback/retry/failure text by location for the generic text-quality rules
 ├── testEngine.js        # runs the applicable rule set, turns rule outcomes into test_results + findings
 ├── rules/
 │   ├── base.js           # rules that apply to every skill (structure, clarity, redundancy, consistency, robustness, ...)
@@ -39,6 +40,17 @@ src/evaluation/
 └── test/
     └── evaluation.test.js
 ```
+
+**Written against the real, merged Analyzer (`src/analyzer/`, PR #1)** —
+`steps[]` with synthetic numeric ids, a flat `tool_dependencies[]` string
+array (no defined/undefined flag), and `decision_points` / `feedback_loops`
+/ `retry_mechanisms` / `failure_handling` as independent keyword-scanned
+`{location, condition|detail}` lines with no branch/exit-condition
+structure. An earlier version of this module was built against a richer,
+speculative shape before the Analyzer PR landed; it was rewritten once the
+real shape was merged (see git history and `docs/architecture.md`'s
+2026-09-05 Module 2 note for what that does and doesn't let this module
+check, and why `collectTextUnits` dedupes by `location`).
 
 ## How criteria selection works
 
@@ -94,10 +106,17 @@ the same result shape (see `testEngine.js`'s doc comment).
 node --test src/evaluation/test/evaluation.test.js
 ```
 
-## Fixtures as a reference for Module 1
+The suite includes an integration test that runs the real `src/analyzer`
+against the repo's shared `fixtures/simple-skill` and
+`fixtures/multi-step-skill`, feeding the actual output straight into
+`evaluateSkill` — a regression guard against contract drift between the
+two modules.
 
-`fixtures/*.json` are example Analyzer outputs (two `"simple"`, two
-`"multi_step_process"` — one clean pair, one deliberately broken pair to
-exercise every rule). They also double as a concrete, runnable reference
-for the item shapes documented in `docs/architecture.md`'s contract
-"1 → 2" section.
+## Fixtures
+
+`fixtures/*.json` are hand-authored example Analyzer outputs (one clean +
+one deliberately broken pair, for each complexity class) used by the unit
+tests to exercise every rule deterministically. For real-world shape
+examples, see the repo-root `fixtures/simple-skill/` and
+`fixtures/multi-step-skill/` directories, which the actual Analyzer
+produces output from (used by the integration test above).

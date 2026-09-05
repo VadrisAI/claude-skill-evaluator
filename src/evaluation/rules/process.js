@@ -1,16 +1,30 @@
 'use strict';
 
 const { createFinding } = require('../findings');
+const { jaccardSimilarity } = require('../textUtils');
 
 function arr(x) {
   return Array.isArray(x) ? x : [];
 }
 
+// A step reference or numeric bound is "exit-shaped" enough to treat a
+// feedback loop / retry mechanism as having a plausible way out. This is a
+// text heuristic, not a real control-flow analysis — the Analyzer doesn't
+// expose structured exit conditions (see docs/architecture.md's 2026-09-05
+// Module 2 note).
+const EXIT_SIGNAL_RE =
+  /\buntil\b|\d+\s*(mal|times?|attempts?|tries?|versuche[n]?)\b|\bup to \d+|\bmax(imal)?\b|\bstop(s|ped|ping)?\b|\babort(s|ed|ing)?\b|\bgiving up\b|\bgeben? auf\b|\berfolgreich\b|\bsuccess(ful)?\b/i;
+
 /**
  * Process rules: only run when complexity_class === "multi_step_process".
- * They check process transitions, dependencies, decision logic, feedback
- * loops, exit conditions, and dead ends, per spec.md's process-specific
- * bullet list.
+ * Written against the real Analyzer output shape: `steps[].id` are
+ * synthetic numeric ids (1..N), `dependencies[]` is
+ * `{from_step, to_step, detail}` (from_step = the step being referenced,
+ * to_step = the step containing the reference), `decision_points` /
+ * `feedback_loops` / `retry_mechanisms` are `{location, condition|detail}`
+ * keyword-scanned lines with no branch/exit-condition structure, and
+ * `tool_dependencies` is a flat array of strings with no defined/undefined
+ * flag. See docs/architecture.md for what that does and doesn't support.
  */
 const processRules = [
   {
@@ -18,24 +32,23 @@ const processRules = [
     metric: 'dependency_management',
     testCategory: 'dependency',
     evaluate(structure) {
-      const instructionIds = new Set(arr(structure.instructions).map((i) => i && i.id).filter(Boolean));
-      const dependencies = arr(structure.dependencies);
+      const stepIds = new Set(arr(structure.steps).map((s) => s && s.id).filter((id) => id !== undefined));
       const findings = [];
-      for (const dep of dependencies) {
+      for (const dep of arr(structure.dependencies)) {
         if (!dep) continue;
-        const missingFrom = dep.from && !instructionIds.has(dep.from);
-        const missingTo = dep.to && dep.type !== 'resource' && dep.type !== 'tool' && !instructionIds.has(dep.to);
+        const missingFrom = dep.from_step !== undefined && !stepIds.has(dep.from_step);
+        const missingTo = dep.to_step !== undefined && !stepIds.has(dep.to_step);
         if (missingFrom || missingTo) {
           findings.push(
             createFinding({
               area: 'Abhängigkeiten',
-              location: `Dependency "${dep.id ?? '(ohne id)'}" (${dep.from ?? '?'} -> ${dep.to ?? '?'})`,
-              problem: 'Eine Abhängigkeit verweist auf einen Schritt, der im Skill nicht existiert.',
-              cause: 'Ein referenzierter Schritt wurde umbenannt, entfernt, oder die Abhängigkeit wurde falsch eingetragen.',
-              impact: 'Eine undefinierte Abhängigkeit kann dazu führen, dass der Prozess an dieser Stelle ins Leere läuft oder nicht wie vorgesehen fortgesetzt wird.',
-              improvement_direction: 'Prüfen, ob der referenzierte Schritt umbenannt oder entfernt wurde, und die Abhängigkeit entsprechend korrigieren.',
-              watch_for: 'Auch indirekte Referenzen (z.B. über eine Zwischenvariable) sollten konsistent auf existierende Schritte verweisen.',
-              context: `Bekannte Instruction-IDs: ${[...instructionIds].join(', ') || '(keine)'}.`,
+              location: `Dependency (Step ${dep.from_step ?? '?'} -> Step ${dep.to_step ?? '?'})`,
+              problem: 'Eine Abhängigkeit verweist auf eine Schrittnummer, die im Skill nicht existiert.',
+              cause: 'Ein Schritt wurde umbenannt oder entfernt, oder eine Instruction referenziert eine falsche Schrittnummer (z.B. "wie in Schritt 12", obwohl es nur 7 Schritte gibt).',
+              impact: 'Eine undefinierte Abhängigkeit kann dazu führen, dass Claude beim Ausführen dieses Schritts auf eine nicht existierende Referenz stößt und den Ablauf falsch interpretiert.',
+              improvement_direction: 'Die referenzierte Schrittnummer korrigieren oder den fehlenden Schritt ergänzen.',
+              watch_for: 'Nach jeder Umnummerierung von Schritten alle "wie in Schritt N"-Referenzen im gesamten Skill neu prüfen.',
+              context: `Bekannte Schritt-IDs: ${[...stepIds].join(', ') || '(keine)'}. Deep-Dive: ${dep.detail ?? '(kein Detail)'}`,
               severity: 'HIGH',
               metric: 'dependency_management',
             }),
@@ -51,63 +64,30 @@ const processRules = [
   },
 
   {
-    id: 'decision-points-have-branches',
-    metric: 'decision_logic',
-    testCategory: 'decision_logic',
-    evaluate(structure) {
-      const decisionPoints = arr(structure.decision_points);
-      const findings = [];
-      for (const dp of decisionPoints) {
-        if (!dp) continue;
-        const branches = arr(dp.branches);
-        if (branches.length < 2) {
-          findings.push(
-            createFinding({
-              area: 'Entscheidungslogik',
-              location: `Entscheidungspunkt "${dp.id ?? '(ohne id)'}" in Instruction "${dp.instruction_id ?? '(unbekannt)'}"`,
-              problem: 'Der Entscheidungspunkt hat weniger als zwei definierte Verzweigungen.',
-              cause: 'Es wurde nur ein möglicher Ausgang beschrieben, oder alternative Fälle wurden nicht ausformuliert.',
-              impact: 'Ohne echte Verzweigung ist unklar, was bei Nichteintreten der Bedingung geschehen soll — ein potenzieller Dead End.',
-              improvement_direction: 'Für die Bedingung mindestens einen Alternativpfad (inkl. Verhalten bei Nichterfüllung) ergänzen.',
-              watch_for: 'Eine bewusste Ja/Abbruch-Logik ist zulässig, sollte dann aber explizit einen Abbruch-/Exit-Pfad benennen statt implizit zu enden.',
-              context: `Bedingung: "${dp.condition ?? '(nicht angegeben)'}", erkannte Branches: ${branches.length}.`,
-              severity: 'MEDIUM',
-              metric: 'decision_logic',
-            }),
-          );
-        }
-      }
-      return {
-        passed: findings.length === 0,
-        detail: findings.length === 0 ? 'Alle Entscheidungspunkte haben mindestens zwei Verzweigungen.' : `${findings.length} Entscheidungspunkt(e) ohne echte Verzweigung gefunden.`,
-        findings,
-      };
-    },
-  },
-
-  {
-    id: 'decision-branch-targets-exist',
+    id: 'dependency-forward-reference',
     metric: 'process_transitions',
     testCategory: 'process_transition',
     evaluate(structure) {
-      const instructionIds = new Set(arr(structure.instructions).map((i) => i && i.id).filter(Boolean));
-      const decisionPoints = arr(structure.decision_points);
+      const stepIds = new Set(arr(structure.steps).map((s) => s && s.id).filter((id) => id !== undefined));
       const findings = [];
-      for (const dp of decisionPoints) {
-        if (!dp) continue;
-        const badBranches = arr(dp.branches).filter((b) => b && !instructionIds.has(b));
-        if (badBranches.length > 0) {
+      for (const dep of arr(structure.dependencies)) {
+        if (!dep || dep.from_step === undefined || dep.to_step === undefined) continue;
+        // An out-of-range from_step/to_step is already reported, with a more
+        // accurate diagnosis, by dependency-references-valid — don't also
+        // frame a broken reference as a merely-out-of-order one here.
+        if (!stepIds.has(dep.from_step) || !stepIds.has(dep.to_step)) continue;
+        if (dep.from_step > dep.to_step) {
           findings.push(
             createFinding({
               area: 'Prozessübergänge',
-              location: `Entscheidungspunkt "${dp.id ?? '(ohne id)'}" in Instruction "${dp.instruction_id ?? '(unbekannt)'}"`,
-              problem: 'Eine Verzweigung verweist auf einen Schritt, der im Skill nicht existiert.',
-              cause: 'Der Zielschritt wurde umbenannt oder entfernt, ohne die Verzweigung anzupassen.',
-              impact: 'Wird dieser Zweig gewählt, endet der Prozess an einem nicht existierenden Schritt — ein Dead End.',
-              improvement_direction: 'Die Verzweigung auf einen existierenden Schritt korrigieren oder den fehlenden Schritt ergänzen.',
-              watch_for: 'Nach jeder Umbenennung von Schritten alle Verzweigungsziele im gesamten Skill neu prüfen.',
-              context: `Nicht auffindbare Ziel-IDs: ${badBranches.join(', ')}.`,
-              severity: 'HIGH',
+              location: `Dependency (Step ${dep.to_step} referenziert Step ${dep.from_step})`,
+              problem: 'Ein früherer Schritt referenziert einen später im Skill definierten Schritt.',
+              cause: 'Die Instruction verweist vorausschauend auf einen Schritt, der zu diesem Zeitpunkt im Ablauf noch nicht ausgeführt bzw. eingeführt wurde.',
+              impact: 'Eine Vorwärtsreferenz kann beim Ausführen zu Verwirrung führen, wenn der referenzierte Schritt noch kein Ergebnis geliefert hat.',
+              improvement_direction: 'Prüfen, ob die Reihenfolge der Schritte angepasst werden sollte, oder ob die Vorwärtsreferenz bewusst und unproblematisch ist (z.B. ein Vorgriff/Überblick).',
+              watch_for: 'Ein bewusster Vorgriff ("wir behandeln das in Schritt X") ist nicht automatisch ein Fehler — diese Prüfung markiert nur eine Stelle, die es wert ist, gegenzuprüfen.',
+              context: `Detail: ${dep.detail ?? '(kein Detail)'}`,
+              severity: 'MEDIUM',
               metric: 'process_transitions',
             }),
           );
@@ -115,7 +95,47 @@ const processRules = [
       }
       return {
         passed: findings.length === 0,
-        detail: findings.length === 0 ? 'Alle Verzweigungsziele existieren.' : `${findings.length} Entscheidungspunkt(e) mit nicht auffindbarem Verzweigungsziel gefunden.`,
+        detail: findings.length === 0 ? 'Keine Vorwärtsreferenzen zwischen Schritten gefunden.' : `${findings.length} Vorwärtsreferenz(en) gefunden.`,
+        findings,
+      };
+    },
+  },
+
+  {
+    id: 'decision-points-duplicate-conditions',
+    metric: 'decision_logic',
+    testCategory: 'decision_logic',
+    evaluate(structure) {
+      const decisionPoints = arr(structure.decision_points).filter((dp) => dp && typeof dp.condition === 'string');
+      const findings = [];
+      const reported = new Set();
+      for (let a = 0; a < decisionPoints.length; a += 1) {
+        for (let b = a + 1; b < decisionPoints.length; b += 1) {
+          const similarity = jaccardSimilarity(decisionPoints[a].condition, decisionPoints[b].condition);
+          if (similarity >= 0.85) {
+            const key = `${decisionPoints[a].location}::${decisionPoints[b].location}`;
+            if (reported.has(key)) continue;
+            reported.add(key);
+            findings.push(
+              createFinding({
+                area: 'Entscheidungslogik',
+                location: `${decisionPoints[a].location} und ${decisionPoints[b].location}`,
+                problem: 'Zwei Entscheidungspunkte formulieren eine nahezu identische Bedingung.',
+                cause: 'Dieselbe Bedingung wurde an zwei Stellen im Skill unabhängig voneinander beschrieben.',
+                impact: 'Doppelt formulierte Bedingungen erschweren es, den Entscheidungsablauf an einer zentralen Stelle zu pflegen, und riskieren künftige Inkonsistenz.',
+                improvement_direction: 'Prüfen, ob eine der beiden Bedingungen entfernt oder beide zu einer zentralen Entscheidungsstelle zusammengeführt werden können.',
+                watch_for: 'Wiederholte Bedingungen an bewusst unterschiedlichen Prozessphasen (z.B. Eingabeprüfung UND Ausgabeprüfung) sind nicht automatisch ein Fehler.',
+                context: `Textähnlichkeit (Jaccard): ${similarity.toFixed(2)}.`,
+                severity: 'MEDIUM',
+                metric: 'decision_logic',
+              }),
+            );
+          }
+        }
+      }
+      return {
+        passed: findings.length === 0,
+        detail: findings.length === 0 ? 'Keine nahezu identischen Entscheidungsbedingungen gefunden.' : `${findings.length} nahezu identische(s) Bedingungspaar(e) gefunden.`,
         findings,
       };
     },
@@ -126,116 +146,127 @@ const processRules = [
     metric: 'exit_conditions',
     testCategory: 'exit_condition',
     evaluate(structure) {
-      const loops = arr(structure.feedback_loops);
+      const loops = arr(structure.feedback_loops).filter((l) => l && typeof l.detail === 'string');
+      const findings = loops
+        .filter((loop) => !EXIT_SIGNAL_RE.test(loop.detail))
+        .map((loop) =>
+          createFinding({
+            area: 'Feedback-Schleifen',
+            location: loop.location,
+            problem: 'Für diese Feedback-Schleife ist kein erkennbares Abbruchkriterium (Exit-Bedingung) im Text erkennbar.',
+            cause: 'Der Trigger für eine Wiederholung wurde beschrieben, aber es wurde nicht erkennbar festgelegt, wann die Schleife verlassen wird (z.B. eine maximale Anzahl Versuche oder ein "bis ... erfolgreich").',
+            impact: 'Ohne erkennbare Exit-Bedingung besteht das Risiko einer Endlosschleife oder eines undefinierten Abbruchverhaltens.',
+            improvement_direction: 'Eine klare Bedingung ergänzen, unter der die Schleife beendet wird (z.B. maximale Anzahl Versuche, erreichtes Ergebnis).',
+            watch_for: 'Dies ist eine textbasierte Heuristik (Suche nach Wörtern wie "until"/"bis", einer Zahl + "Mal/times", "stop"/"abort"); eine tatsächlich vorhandene, aber anders formulierte Exit-Bedingung kann übersehen werden.',
+            context: `Erkannter Text: "${loop.detail}"`,
+            severity: 'HIGH',
+            metric: 'exit_conditions',
+          }),
+        );
+      return {
+        passed: findings.length === 0,
+        detail: findings.length === 0 ? 'Alle Feedback-Schleifen haben ein erkennbares Abbruchkriterium.' : `${findings.length} Feedback-Schleife(n) ohne erkennbares Abbruchkriterium gefunden.`,
+        findings,
+      };
+    },
+  },
+
+  {
+    id: 'retry-mechanism-has-limit',
+    metric: 'exit_conditions',
+    testCategory: 'boundary',
+    evaluate(structure) {
+      const retries = arr(structure.retry_mechanisms).filter((r) => r && typeof r.detail === 'string');
+      const findings = retries
+        .filter((r) => !EXIT_SIGNAL_RE.test(r.detail))
+        .map((r) =>
+          createFinding({
+            area: 'Retry-Mechanismen',
+            location: r.location,
+            problem: 'Für diesen Retry-Mechanismus ist keine erkennbare Obergrenze oder Abbruchbedingung im Text erkennbar.',
+            cause: 'Ein Wiederholungsversuch wird beschrieben, aber es wird nicht erkennbar begrenzt, wie oft wiederholt wird oder wann aufgegeben wird.',
+            impact: 'Ein unbegrenzter Retry-Mechanismus riskiert wiederholte Fehlversuche ohne Fortschritt (z.B. bei einem dauerhaft nicht verfügbaren Tool).',
+            improvement_direction: 'Eine explizite Obergrenze (z.B. "maximal 3 Versuche") oder ein klares Abbruchkriterium ergänzen.',
+            watch_for: 'Dies ist eine textbasierte Heuristik; eine an anderer Stelle im Skill zentral definierte Obergrenze wird hier möglicherweise nicht erkannt.',
+            context: `Erkannter Text: "${r.detail}"`,
+            severity: 'MEDIUM',
+            metric: 'exit_conditions',
+          }),
+        );
+      return {
+        passed: findings.length === 0,
+        detail: findings.length === 0 ? 'Alle Retry-Mechanismen haben eine erkennbare Obergrenze.' : `${findings.length} Retry-Mechanismus/-men ohne erkennbare Obergrenze gefunden.`,
+        findings,
+      };
+    },
+  },
+
+  {
+    id: 'feedback-loop-target-step-exists',
+    metric: 'dead_end_detection',
+    testCategory: 'dead_end',
+    evaluate(structure) {
+      const stepIds = new Set(arr(structure.steps).map((s) => s && s.id).filter((id) => id !== undefined));
+      const loops = arr(structure.feedback_loops).filter((l) => l && typeof l.detail === 'string');
       const findings = [];
       for (const loop of loops) {
-        if (!loop) continue;
-        if (!loop.exit_condition || String(loop.exit_condition).trim() === '') {
+        const match = /\b(?:step|schritt)\s+(\d+)\b/i.exec(loop.detail);
+        if (!match) continue;
+        const targetId = Number(match[1]);
+        if (!stepIds.has(targetId)) {
           findings.push(
             createFinding({
-              area: 'Feedback-Schleifen',
-              location: `Feedback-Loop "${loop.id ?? '(ohne id)'}" in Instruction "${loop.instruction_id ?? '(unbekannt)'}"`,
-              problem: 'Die Feedback-Schleife hat keine definierte Exit-Bedingung.',
-              cause: 'Der Trigger für eine Wiederholung wurde beschrieben, aber es wurde nicht festgelegt, wann die Schleife verlassen wird.',
-              impact: 'Ohne Exit-Bedingung besteht das Risiko einer Endlosschleife oder eines undefinierten Abbruchverhaltens.',
-              improvement_direction: 'Eine klare Bedingung ergänzen, unter der die Schleife beendet wird (z.B. maximale Anzahl Versuche, erreichtes Ergebnis).',
-              watch_for: 'Auch ein impliziter Abbruch durch externe Faktoren (z.B. Zeitlimit der Umgebung) sollte nicht als einzige Exit-Bedingung vorausgesetzt werden.',
-              context: `Trigger der Schleife: "${loop.trigger ?? '(nicht angegeben)'}".`,
+              area: 'Erreichbarkeit / Dead Ends',
+              location: loop.location,
+              problem: `Die Feedback-Schleife verweist auf Schritt ${targetId}, der im Skill nicht existiert.`,
+              cause: 'Der Zielschritt der Schleife wurde umbenannt oder entfernt, ohne die Schleifen-Referenz anzupassen.',
+              impact: 'Ein Sprung zu einem nicht existierenden Schritt ist ein Dead End: der Ablauf kann an dieser Stelle nicht sinnvoll fortgesetzt werden.',
+              improvement_direction: 'Die Schleifen-Referenz auf einen existierenden Schritt korrigieren.',
+              watch_for: 'Nach jeder Umnummerierung von Schritten auch alle "loop back to step N"-Formulierungen prüfen.',
+              context: `Erkannter Text: "${loop.detail}"; bekannte Schritt-IDs: ${[...stepIds].join(', ') || '(keine)'}.`,
               severity: 'HIGH',
-              metric: 'exit_conditions',
+              metric: 'dead_end_detection',
             }),
           );
         }
       }
       return {
         passed: findings.length === 0,
-        detail: findings.length === 0 ? 'Alle Feedback-Schleifen haben eine definierte Exit-Bedingung.' : `${findings.length} Feedback-Schleife(n) ohne Exit-Bedingung gefunden.`,
+        detail: findings.length === 0 ? 'Alle Feedback-Schleifen verweisen auf existierende Schritte (soweit erkennbar).' : `${findings.length} Feedback-Schleife(n) mit nicht auffindbarem Zielschritt gefunden.`,
         findings,
       };
     },
   },
 
   {
-    id: 'unreachable-steps',
-    metric: 'dead_end_detection',
-    testCategory: 'dead_end',
-    evaluate(structure) {
-      const instructions = arr(structure.instructions).filter((i) => i && i.id);
-      if (instructions.length < 2) {
-        return { passed: true, detail: 'Zu wenige Schritte, um Erreichbarkeit sinnvoll zu prüfen.', findings: [] };
-      }
-      const referenced = new Set();
-      for (const dep of arr(structure.dependencies)) {
-        if (dep && dep.to) referenced.add(dep.to);
-      }
-      for (const dp of arr(structure.decision_points)) {
-        for (const b of arr(dp && dp.branches)) referenced.add(b);
-      }
-      const sorted = [...instructions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      const entryId = sorted[0].id;
-      const unreachable = sorted.filter((i) => i.id !== entryId && !referenced.has(i.id));
-      const findings = unreachable.map((i) =>
-        createFinding({
-          area: 'Erreichbarkeit / Dead Ends',
-          location: `Instruction "${i.id}"${i.section ? ` (Abschnitt: ${i.section})` : ''}`,
-          problem: 'Für diesen Schritt wurde kein eingehender Prozessübergang (Dependency oder Verzweigung) gefunden.',
-          cause: 'Der Schritt wurde vermutlich ergänzt, ohne ihn aus dem bestehenden Ablauf heraus zu verknüpfen.',
-          impact: 'Ein nicht erreichbarer Schritt wird im normalen Ablauf nie ausgeführt und bindet unnötig Komplexität/Tokens.',
-          improvement_direction: 'Prüfen, ob dieser Schritt von einem vorherigen Schritt aus erreichbar gemacht werden muss, oder ob er entfernt werden kann.',
-          watch_for: 'Diese Prüfung basiert nur auf expliziten Dependencies/Verzweigungen aus dem Analyzer-Output; implizite sequenzielle Reihenfolge ohne deklarierte Übergänge wird als nicht erreichbar gewertet.',
-          context: `Erkannte eingehende Referenzen im gesamten Skill: ${[...referenced].join(', ') || '(keine)'}.`,
-          severity: 'MEDIUM',
-          metric: 'dead_end_detection',
-        }),
-      );
-      return {
-        passed: findings.length === 0,
-        detail: findings.length === 0 ? 'Alle Schritte sind über mindestens einen Übergang erreichbar.' : `${findings.length} potenziell nicht erreichbare(r) Schritt(e) gefunden.`,
-        findings,
-      };
-    },
-  },
-
-  {
-    id: 'end-to-end-path-exists',
+    id: 'missing-declared-outputs',
     metric: 'process_transitions',
     testCategory: 'e2e',
     evaluate(structure) {
-      const instructions = arr(structure.instructions).filter((i) => i && i.id);
-      if (instructions.length < 2) {
-        return { passed: true, detail: 'Zu wenige Schritte für eine End-to-End-Prüfung.', findings: [] };
+      const stepCount = structure.step_count || 0;
+      const inputs = arr(structure.inputs);
+      const outputs = arr(structure.outputs);
+      const passed = !(stepCount > 1 && inputs.length > 0 && outputs.length === 0);
+      if (passed) {
+        return { passed, detail: 'Outputs sind dokumentiert oder für diesen Skill nicht erforderlich.', findings: [] };
       }
-      const outgoing = new Set();
-      for (const dep of arr(structure.dependencies)) {
-        if (dep && dep.from) outgoing.add(dep.from);
-      }
-      for (const dp of arr(structure.decision_points)) {
-        if (dp && dp.instruction_id) outgoing.add(dp.instruction_id);
-      }
-      const sorted = [...instructions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      const nonTerminal = sorted.slice(0, -1);
-      const deadEnds = nonTerminal.filter((i) => !outgoing.has(i.id));
-      const passed = deadEnds.length === 0;
-      const findings = passed
-        ? []
-        : [
-            createFinding({
-              area: 'End-to-End-Ablauf',
-              location: `Instruction(s): ${deadEnds.map((i) => i.id).join(', ')}`,
-              problem: 'Ein oder mehrere nicht-letzte Schritte haben keinen erkennbaren ausgehenden Übergang zum nächsten Schritt.',
-              cause: 'Der Prozessfluss wurde an dieser Stelle nicht explizit mit dem nächsten Schritt verknüpft.',
-              impact: 'Der End-to-End-Ablauf kann an dieser Stelle abbrechen (Dead End), ohne dass dies beabsichtigt ist.',
-              improvement_direction: 'Für jeden Zwischenschritt einen expliziten Übergang zum jeweils nächsten Schritt oder zu einer Verzweigung ergänzen.',
-              watch_for: 'Ein Schritt kann absichtlich ein Zwischenergebnis erzeugen, das erst später verwendet wird — das ist kein Dead End, sollte aber trotzdem als Übergang erkennbar dokumentiert sein.',
-              context: `Schritte mit erkanntem ausgehendem Übergang: ${[...outgoing].join(', ') || '(keine)'}.`,
-              severity: 'MEDIUM',
-              metric: 'process_transitions',
-            }),
-          ];
       return {
         passed,
-        detail: passed ? 'Für alle Zwischenschritte existiert ein ausgehender Übergang.' : `${deadEnds.length} Zwischenschritt(e) ohne ausgehenden Übergang gefunden.`,
-        findings,
+        detail: 'Der Prozess hat definierte Inputs, aber keine dokumentierten Outputs.',
+        findings: [
+          createFinding({
+            area: 'End-to-End-Ablauf',
+            location: 'Abschnitt "Outputs" (bzw. dessen Fehlen)',
+            problem: 'Der mehrstufige Prozess hat definierte Inputs, aber es sind keine Outputs dokumentiert.',
+            cause: 'Es fehlt ein Abschnitt, der beschreibt, was der Prozess am Ende erzeugt.',
+            impact: 'Ohne dokumentiertes Ergebnis ist unklar, ob und wie der End-to-End-Ablauf tatsächlich zu einem verwertbaren Resultat führt — ein möglicher impliziter Dead End.',
+            improvement_direction: 'Einen Abschnitt ergänzen, der das/die Endergebnis(se) des Prozesses benennt.',
+            watch_for: 'Manche Skills erzeugen ihr Ergebnis nur als Seiteneffekt (z.B. eine Nachricht an den Nutzer); das sollte dann trotzdem kurz benannt werden.',
+            context: `Analyzer-Ergebnis: step_count=${stepCount}, inputs=${inputs.length}, outputs=0.`,
+            severity: 'MEDIUM',
+            metric: 'process_transitions',
+          }),
+        ],
       };
     },
   },

@@ -2,33 +2,37 @@
   "skill_path": "fixtures/multi-step-skill-with-issues",
   "structure": {
     "has_skill_md": true,
-    "resources": [],
+    "resources": ["scripts/"],
+    "purpose": "Processes an uploaded file through several steps and produces a report.",
     "instruction_count": 6,
     "step_count": 6,
-    "instructions": [
-      { "id": "j1", "text": "Lies die Rohdaten ein und normalisiere das Format.", "section": "Eingabe", "order": 0 },
-      { "id": "j2", "text": "Prüfe, ob alle Pflichtfelder vorhanden sind.", "section": "Validierung", "order": 1 },
-      { "id": "j3", "text": "Analysiere den Datentyp des Eingabewerts.", "section": "Verzweigung", "order": 2 },
-      { "id": "j4", "text": "Verarbeite die Liste Element fuer Element.", "section": "Verarbeitung", "order": 3 },
-      { "id": "j5", "text": "Eventuell muss hier noch nachgebessert werden, falls das Format unbekannt ist.", "section": "Verarbeitung", "order": 4 },
-      { "id": "j6", "text": "Erstelle den finalen Ausgabebericht.", "section": "Ausgabe", "order": 5 }
+    "steps": [
+      { "id": 1, "description": "Lies die Rohdaten ein und normalisiere das Format.", "location": "SKILL.md:1", "tools": [], "references_steps": [] },
+      { "id": 2, "description": "Prüfe, ob alle Pflichtfelder vorhanden sind, wie in Schritt 5 beschrieben.", "location": "SKILL.md:2", "tools": [], "references_steps": [5] },
+      { "id": 3, "description": "Analysiere den Datentyp des Eingabewerts.", "location": "SKILL.md:3", "tools": [], "references_steps": [] },
+      { "id": 4, "description": "Verarbeite die Liste, wie in Schritt 9 beschrieben.", "location": "SKILL.md:4", "tools": [], "references_steps": [9] },
+      { "id": 5, "description": "Eventuell muss hier noch nachgebessert werden, falls das Format unbekannt ist.", "location": "SKILL.md:5", "tools": [], "references_steps": [] },
+      { "id": 6, "description": "Erstelle den finalen Ausgabebericht.", "location": "SKILL.md:6", "tools": [], "references_steps": [] }
     ],
+    "inputs": ["Some input."],
+    "outputs": [],
     "dependencies": [
-      { "id": "d1", "from": "j1", "to": "j2", "type": "step" },
-      { "id": "d2", "from": "j2", "to": "j99", "type": "step" }
+      { "from_step": 5, "to_step": 2, "detail": "Step 2 references step 5" },
+      { "from_step": 9, "to_step": 4, "detail": "Step 4 references step 9" }
     ],
-    "tool_dependencies": [
-      { "tool": "database_query", "referenced_in": "j2", "defined": false }
-    ],
+    "tool_dependencies": ["scripts/cleanup.py"],
     "decision_points": [
-      { "id": "dp1", "condition": "Ist das Format gueltig?", "branches": ["j4", "jGhost"], "instruction_id": "j3" },
-      { "id": "dp2", "condition": "Ist ein Sonderfall aktiv?", "branches": ["j4"], "instruction_id": "j2" }
+      { "location": "SKILL.md:7", "condition": "Ist das Eingabeformat gültig und vollständig?" },
+      { "location": "SKILL.md:8", "condition": "Ist das Eingabeformat gültig und vollständig?" }
     ],
     "feedback_loops": [
-      { "id": "fl1", "trigger": "Ergebnis nicht valide", "exit_condition": null, "instruction_id": "j2" }
+      { "location": "SKILL.md:9", "detail": "Loop back to step 12 if the result does not pass validation." }
+    ],
+    "retry_mechanisms": [
+      { "location": "SKILL.md:10", "detail": "Retry the operation." }
     ],
     "failure_handling": []
   },
   "complexity_class": "multi_step_process",
-  "complexity_signals": ["multiple connected steps", "decision points present", "feedback loop present"]
+  "complexity_signals": ["Detected 6 ordered steps.", "Found 2 decision points.", "Found 1 feedback loop indicator.", "Found 1 retry mechanism indicator."]
 }
