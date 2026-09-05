@@ -1,0 +1,24 @@
+{
+  "name": "claude-skill-evaluator",
+  "version": "0.1.0",
+  "description": "Independent evaluator for existing Claude Agent Skills (SKILL.md-based structures). Analyzes, tests, and scores a skill without modifying it.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "src/pipeline/index.js",
+  "bin": {
+    "evaluate-skill": "bin/evaluate-skill.js"
+  },
+  "scripts": {
+    "evaluate": "node bin/evaluate-skill.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src",
+    "bin",
+    "commands",
+    ".claude-plugin"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "claude-skill-evaluator",
+  "displayName": "Claude Agent Skill Evaluator",
+  "description": "Independently analyzes, tests, and scores an existing Claude Agent Skill (SKILL.md-based structure) and produces a detailed report. Never creates, modifies, or auto-fixes skills.",
+  "version": "0.1.0",
+  "author": {
+    "name": "VadrisAI"
+  },
+  "homepage": "https://github.com/VadrisAI/claude-skill-evaluator",
+  "repository": "https://github.com/VadrisAI/claude-skill-evaluator",
+  "license": "MIT",
+  "keywords": ["skill-evaluation", "quality", "testing", "report", "claude-skills"]
+}
