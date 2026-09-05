@@ -237,6 +237,118 @@ test('tool_dependencies excludes markup, bare extensions, and data files', () =>
   }
 });
 
+test('step references inside fenced code are examples, not dependencies', () => {
+  const dir = makeTempSkill(
+    [
+      '---', 'name: fenced', 'description: Has a code example mentioning another step.', '---', '',
+      '# Fenced', '',
+      '## Step 1: Collect', '',
+      'Collect the input.', '',
+      '```text', 'Sample log: return to step 9 if the upload fails', '```', '',
+      '## Step 2: Submit', '', 'Submit it.',
+    ].join('\n')
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.deepEqual(structure.steps[0].references_steps, [], 'a step number inside a code fence must not become a dependency');
+    assert.deepEqual(structure.dependencies, []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('non-sequential step labels are mapped onto the generated step ids', () => {
+  const dir = makeTempSkill(
+    [
+      '---', 'name: phases', 'description: Uses Phase 10/20/30 labels.', '---', '',
+      '# Phases', '',
+      '## Phase 10: Collect', '', 'Collect the input.', '',
+      '## Phase 20: Validate', '', 'Validate what Phase 10 produced.', '',
+      '## Phase 30: Submit', '', 'Submit the result from Phase 20.',
+    ].join('\n')
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.equal(structure.step_count, 3);
+    // "Phase 20" is step id 2 — not a dependency on a nonexistent step 20.
+    assert.deepEqual(structure.dependencies.map((d) => [d.from_step, d.to_step]), [[1, 2], [2, 3]]);
+    for (const dep of structure.dependencies) {
+      assert.ok(dep.from_step >= 1 && dep.from_step <= 3, `dependency points outside the step range: ${dep.from_step}`);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a broken reference is still reported when labels are a plain 1..N sequence', () => {
+  const dir = makeTempSkill(
+    [
+      '---', 'name: broken-ref', 'description: References a step that does not exist.', '---', '',
+      '# Broken', '',
+      '## Step 1: Collect', '', 'Collect the input.', '',
+      '## Step 2: Submit', '', 'Submit what step 7 produced.',
+    ].join('\n')
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.ok(
+      structure.dependencies.some((d) => d.from_step === 7),
+      'an out-of-range reference under 1..N labelling is a real defect and must survive for module 2 to flag'
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('nested sub-step headings are structure, not cross-references', () => {
+  // Shape taken from a real skill (doc-coauthoring): "## Stage N" phases,
+  // each containing its own "### Step 1..N" sub-headings that restart at 1.
+  const dir = makeTempSkill(
+    [
+      '---', 'name: nested', 'description: Stages containing their own numbered sub-steps.', '---', '',
+      '# Nested', '',
+      '## Stage 1: Gather', '', 'Gather the input.', '',
+      '### Step 1: Ask', '', 'Ask the user.', '',
+      '### Step 2: Collect', '', 'Collect answers.', '',
+      '## Stage 2: Produce', '', 'Produce the result.', '',
+      '### Step 3: Draft', '', 'Draft it.', '',
+      '### Step 4: Polish', '', 'Polish it.',
+    ].join('\n')
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.equal(structure.step_count, 2, 'the two Stage headings are the steps');
+    for (const dep of structure.dependencies) {
+      assert.ok(
+        dep.from_step <= structure.step_count && dep.to_step <= structure.step_count,
+        `sub-step heading read as a dependency on a nonexistent step: ${JSON.stringify(dep)}`
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('referenced_files lists only files the SKILL.md actually mentions', () => {
+  const dir = makeTempSkill(
+    [
+      '---', 'name: refs', 'description: Mentions one file, ships another.', '---', '',
+      '# Refs', '', 'Read `references/notes.md` before starting.',
+    ].join('\n'),
+    { 'references/notes.md': 'notes\n', 'assets/never-mentioned.png': 'x\n' }
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.ok(structure.referenced_files.includes('references/notes.md'));
+    assert.ok(
+      !structure.referenced_files.includes('assets/never-mentioned.png'),
+      'a file that merely exists is not a file the skill references'
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('throws a clear error for a non-existent path', () => {
   assert.throws(() => analyzeSkill(path.join(FIXTURES, 'does-not-exist')), /does not exist/);
 });

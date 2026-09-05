@@ -107,4 +107,4 @@ function extractCodeBlocks(body) {
   return blocks;
 }
 
-module.exports = { splitLines, extractHeadings, extractListItems, extractCodeBlocks };
+module.exports = { splitLines, computeFenceMask, extractHeadings, extractListItems, extractCodeBlocks };

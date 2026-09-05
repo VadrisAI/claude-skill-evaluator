@@ -1,6 +1,6 @@
 'use strict';
 
-const { splitLines, extractHeadings, extractListItems } = require('./markdown');
+const { splitLines, computeFenceMask, extractHeadings, extractListItems } = require('./markdown');
 
 const STEP_SECTION_RE = /\b(steps?|workflow|process|procedure|instructions)\b/i;
 const DECISION_RE = /\b(if|when|unless|otherwise|else|depending on|in case)\b/i;
@@ -180,18 +180,43 @@ function extractStepHeadings(headings, body = '') {
     ordered.push(m);
   }
 
+  // Steps get sequential ids (1..N) regardless of how the author labelled
+  // them, so a "Phase 10 / Phase 20 / Phase 30" skill still yields ids
+  // 1, 2, 3. Cross-references in prose, though, use the author's labels —
+  // so they have to be translated back, or "the result from Phase 20" would
+  // become a dependency on a step id 20 that does not exist.
+  const labelToId = new Map(ordered.map((m, idx) => [m.number, idx + 1]));
+  const labelsAreSequential = ordered.every((m, idx) => m.number === idx + 1);
+  const fenced = computeFenceMask(lines);
+
   return ordered.map((m, idx) => {
     const id = idx + 1;
     const title = m.heading.text.trim();
     // A step's substance lives in the prose under its heading, not in the
     // heading text — that's where "the amount from step 1" or "return to
     // step 4" actually appear, so the section body has to be scanned too.
-    const sectionText = sectionBody(lines, headings, m.heading);
+    // Fenced code is excluded: a sample log line reading "return to step 9"
+    // is an example, not a dependency of the surrounding step.
+    const sectionText = sectionBody(lines, fenced, headings, m.heading);
     const searchText = `${title}\n${sectionText}`;
 
-    const refs = [...searchText.matchAll(/\bstep\s+(\d+)\b/gi)]
-      .map((x) => Number(x[1]))
-      .filter((n) => n !== m.number);
+    const refs = [];
+    for (const x of searchText.matchAll(/\b(?:step|phase|stage|schritt)\s+#?(\d+)\b/gi)) {
+      const label = Number(x[1]);
+      if (label === m.number) continue; // a step referring to itself
+      if (labelToId.has(label)) {
+        const target = labelToId.get(label);
+        if (target !== id) refs.push(target);
+      } else if (labelsAreSequential) {
+        // Labels are a plain 1..N sequence, so an out-of-range number is a
+        // genuine reference to a step that does not exist — worth passing
+        // on. With non-sequential labels we cannot tell a broken reference
+        // from an unrecognised numbering scheme, so it is dropped rather
+        // than invented.
+        refs.push(label);
+      }
+    }
+
     const tools = [...searchText.matchAll(/`([^`\n]+)`/g)].map((x) => x[1].trim()).filter(looksLikeTool);
 
     return {
@@ -208,10 +233,21 @@ function extractStepHeadings(headings, body = '') {
  * The lines belonging to a heading's own section: everything until the next
  * heading at the same or a higher level.
  */
-function sectionBody(lines, headings, heading) {
+function sectionBody(lines, fenced, headings, heading) {
   const next = headings.find((h) => h.line > heading.line && h.level <= heading.level);
   const end = next ? next.line - 1 : lines.length;
-  return lines.slice(heading.line, end).join('\n');
+  return lines
+    .slice(heading.line, end)
+    .filter((line, i) => {
+      if (fenced[heading.line + i]) return false; // examples, not instructions
+      // Sub-headings are structure, not cross-references: a "### Step 4:"
+      // nested under "## Stage 2" names a sub-step of that stage — reading
+      // it as "stage 2 depends on step 4" invents a dependency that the
+      // skill never stated.
+      if (/^\s*#{1,6}\s/.test(line)) return false;
+      return true;
+    })
+    .join('\n');
 }
 
 function extractDependencies(steps) {
@@ -263,9 +299,21 @@ function extractReferencedFiles({ body, tree }) {
     if (looksLikeReferencedFile(value)) files.add(value);
   }
 
+  // Markdown links: [notes](references/notes.md)
+  for (const match of body.matchAll(/\]\(([^)\s]+)\)/g)) {
+    const value = match[1].trim();
+    if (looksLikeReferencedFile(value)) files.add(value);
+  }
+
+  // Files on disk count only when the SKILL.md actually mentions them — by
+  // full path or by filename. Listing every file that merely exists would
+  // contradict the field's meaning ("what the skill reads") and hand the
+  // evaluation engine phantom dependencies for stray assets.
   for (const file of collectFiles(tree)) {
     const p = file.path.replace(/\\/g, '/');
-    if (!EXECUTABLE_EXT.test(p) && p.toLowerCase() !== 'skill.md') files.add(p);
+    if (EXECUTABLE_EXT.test(p) || p.toLowerCase() === 'skill.md') continue;
+    const base = p.split('/').pop();
+    if (body.includes(p) || body.includes(base)) files.add(p);
   }
 
   return [...files].sort();
