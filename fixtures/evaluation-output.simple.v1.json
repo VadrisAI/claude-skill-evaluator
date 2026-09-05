@@ -1,0 +1,73 @@
+{
+  "skill_path": "./examples/pdf-form-filler",
+  "complexity_class": "simple",
+  "applicable_metrics": [
+    "instruction_quality",
+    "task_definition",
+    "consistency",
+    "robustness",
+    "completeness",
+    "efficiency"
+  ],
+  "findings": [
+    {
+      "area": "SKILL.md — Instructions",
+      "location": "SKILL.md, Abschnitt \"Vorgehen\", Schritt 2",
+      "problem": "Der Schritt beschreibt \"fülle das Formular sinnvoll aus\", ohne zu definieren, was bei fehlenden Pflichtfeldern im Quelldokument passieren soll.",
+      "cause": "Die Instruction geht implizit davon aus, dass alle benötigten Werte immer vorhanden sind, und behandelt den Fehlerfall nicht.",
+      "impact": "Bei unvollständigen Eingabedaten kann das Modell raten oder Felder stillschweigend leer lassen, was zu einem unbrauchbaren oder falsch ausgefüllten Formular führt.",
+      "improvement_direction": "Eine explizite Regel für den Umgang mit fehlenden Pflichtfeldern ergänzen (z. B. wann nachgefragt werden soll und wann ein Feld bewusst leer bleiben darf).",
+      "watch_for": "Die neue Regel darf nicht so streng werden, dass bei jedem optionalen Feld nachgefragt wird — das würde den Skill für den Normalfall unbrauchbar langsam machen.",
+      "context": "Getestet mit Testfall edge-001 (Formular mit fehlendem Pflichtfeld \"Geburtsdatum\") — das Ergebnis ließ das Feld ohne Hinweis leer.",
+      "severity": "HIGH",
+      "metric": "robustness"
+    },
+    {
+      "area": "SKILL.md — Beschreibung",
+      "location": "SKILL.md, YAML-Frontmatter, Feld \"description\"",
+      "problem": "Die description erwähnt nicht, für welche Dateiformate der Skill gedacht ist (nur PDF oder auch gescannte Bilder?).",
+      "cause": "Die Frontmatter-Beschreibung wurde knapp gehalten, ohne die unterstützten Eingabeformate explizit aufzuzählen.",
+      "impact": "Das Skill-Trigger-Matching kann bei Anfragen zu verwandten, aber nicht unterstützten Formaten (z. B. eingescannte Formulare) fälschlich auslösen oder fälschlich nicht auslösen.",
+      "improvement_direction": "Unterstützte Eingabeformate in der description explizit benennen.",
+      "watch_for": "Die description sollte kurz bleiben — keine vollständige Format-Liste, sondern die wichtigsten Fälle.",
+      "context": "Vergleich mit den Trigger-Beispielen aus dem Anthropic Skill-Authoring-Leitfaden, der explizite Format-/Trigger-Begriffe in der description empfiehlt.",
+      "severity": "MEDIUM",
+      "metric": "task_definition"
+    },
+    {
+      "area": "SKILL.md — Struktur",
+      "location": "SKILL.md, gesamter Abschnitt \"Vorgehen\"",
+      "problem": "Zwei Sätze im Abschnitt beschreiben denselben Ausfüll-Schritt mit leicht unterschiedlicher Reihenfolge (einmal \"Felder identifizieren, dann validieren\", einmal \"validieren, dann Felder identifizieren\").",
+      "cause": "Vermutlich wurde der Abschnitt nachträglich erweitert, ohne die ursprüngliche Formulierung zu entfernen.",
+      "impact": "Widersprüchliche Reihenfolge-Angaben können zu inkonsistentem Verhalten zwischen Ausführungen führen.",
+      "improvement_direction": "Redundante/widersprüchliche Formulierung konsolidieren, sodass die Reihenfolge nur einmal und eindeutig beschrieben ist.",
+      "watch_for": "Beim Zusammenführen darauf achten, keine der beiden Detailangaben versehentlich zu verlieren.",
+      "context": "Zeilen 14 und 27 von SKILL.md im Abschnitt \"Vorgehen\".",
+      "severity": "MEDIUM",
+      "metric": "consistency"
+    },
+    {
+      "area": "SKILL.md — Instructions",
+      "location": "SKILL.md, Abschnitt \"Vorgehen\", Schritt 4",
+      "problem": "Kein Hinweis, wie das Ergebnis validiert werden soll, bevor es dem Nutzer präsentiert wird.",
+      "cause": "Der Skill endet direkt nach dem Ausfüllen, ohne einen Verifikationsschritt vorzusehen.",
+      "impact": "Fehlerhaft ausgefüllte Felder werden nicht abgefangen, bevor der Nutzer das Ergebnis erhält.",
+      "improvement_direction": "Einen abschließenden Prüfschritt vor der Ausgabe ergänzen.",
+      "watch_for": "Der Prüfschritt sollte klar und knapp bleiben, kein zusätzlicher mehrstufiger Prozess.",
+      "context": "Testfall standard-003 zeigte ein Formular mit einem offensichtlich falsch formatierten Datum, das unverändert ausgegeben wurde.",
+      "severity": "LOW",
+      "metric": "completeness"
+    }
+  ],
+  "test_results": [
+    { "test_id": "standard-001", "category": "standard", "passed": true, "detail": "Einfaches PDF-Formular mit allen Pflichtfeldern korrekt ausgefüllt." },
+    { "test_id": "standard-002", "category": "standard", "passed": true, "detail": "Formular mit mehreren Seiten korrekt verarbeitet." },
+    { "test_id": "standard-003", "category": "standard", "passed": false, "detail": "Fehlerhaft formatiertes Datum wurde unverändert übernommen." },
+    { "test_id": "edge-001", "category": "edge", "passed": false, "detail": "Fehlendes Pflichtfeld wurde ohne Hinweis leer gelassen." },
+    { "test_id": "edge-002", "category": "edge", "passed": true, "detail": "Sehr langes Freitextfeld korrekt gekürzt/behandelt." },
+    { "test_id": "ambiguous-001", "category": "ambiguous", "passed": true, "detail": "Mehrdeutige Namensangabe sinnvoll interpretiert." },
+    { "test_id": "boundary-001", "category": "boundary", "passed": true, "detail": "Maximale Feldlänge korrekt gehandhabt." },
+    { "test_id": "failure-001", "category": "failure", "passed": true, "detail": "Beschädigte PDF-Datei sauber mit Fehlermeldung abgelehnt." },
+    { "test_id": "consistency-001", "category": "consistency", "passed": false, "detail": "Wiederholte Ausführung mit identischem Input lieferte zwei unterschiedliche Feld-Reihenfolgen." }
+  ]
+}

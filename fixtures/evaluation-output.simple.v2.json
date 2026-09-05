@@ -1,0 +1,50 @@
+{
+  "skill_path": "./examples/pdf-form-filler",
+  "complexity_class": "simple",
+  "applicable_metrics": [
+    "instruction_quality",
+    "task_definition",
+    "consistency",
+    "robustness",
+    "completeness",
+    "efficiency"
+  ],
+  "findings": [
+    {
+      "area": "SKILL.md — Instructions",
+      "location": "SKILL.md, Abschnitt \"Vorgehen\", Schritt 2",
+      "problem": "Die Regel für fehlende Pflichtfelder wurde ergänzt, deckt aber nur den Fall \"Feld komplett leer\" ab, nicht den Fall \"Feld enthält Platzhaltertext wie 'TBD'\".",
+      "cause": "Die Nachbesserung hat den ursprünglich gemeldeten Fall behoben, aber einen benachbarten Fall nicht mitgedacht.",
+      "impact": "Platzhaltertext in Quelldaten kann weiterhin unbemerkt ins ausgefüllte Formular übernommen werden.",
+      "improvement_direction": "Die Regel für fehlende Pflichtfelder auf erkennbare Platzhalterwerte erweitern.",
+      "watch_for": "Keine zu breite Heuristik einführen, die legitime kurze Werte fälschlich als Platzhalter erkennt.",
+      "context": "Regressionstest edge-001 besteht jetzt; neuer Testfall edge-003 deckt den Platzhalterfall auf und schlägt fehl.",
+      "severity": "LOW",
+      "metric": "robustness"
+    },
+    {
+      "area": "SKILL.md — Struktur",
+      "location": "SKILL.md, Abschnitt \"Vorgehen\"",
+      "problem": "Die zuvor widersprüchliche Reihenfolgebeschreibung wurde konsolidiert; ein Restsatz verweist aber noch auf den alten Ablauf im Beispielblock.",
+      "cause": "Beim Konsolidieren wurde ein Beispiel im unteren Teil der Datei nicht mit aktualisiert.",
+      "impact": "Geringes Risiko einer widersprüchlichen Lektüre, betrifft aber nur ein Beispiel, nicht die Kernregel.",
+      "improvement_direction": "Das verbliebene Beispiel an die konsolidierte Reihenfolge angleichen.",
+      "watch_for": "Sicherstellen, dass Beispiele und Kernregeln nach jeder Änderung synchron bleiben.",
+      "context": "Zeile 31 (Beispielblock) von SKILL.md.",
+      "severity": "LOW",
+      "metric": "consistency"
+    }
+  ],
+  "test_results": [
+    { "test_id": "standard-001", "category": "standard", "passed": true, "detail": "Einfaches PDF-Formular mit allen Pflichtfeldern korrekt ausgefüllt." },
+    { "test_id": "standard-002", "category": "standard", "passed": true, "detail": "Formular mit mehreren Seiten korrekt verarbeitet." },
+    { "test_id": "standard-003", "category": "standard", "passed": true, "detail": "Fehlerhaft formatiertes Datum wird jetzt vor Ausgabe korrigiert bzw. markiert." },
+    { "test_id": "edge-001", "category": "edge", "passed": true, "detail": "Fehlendes Pflichtfeld wird jetzt mit Hinweis markiert." },
+    { "test_id": "edge-002", "category": "edge", "passed": true, "detail": "Sehr langes Freitextfeld korrekt gekürzt/behandelt." },
+    { "test_id": "edge-003", "category": "edge", "passed": false, "detail": "Platzhaltertext 'TBD' im Quellfeld wurde unverändert übernommen." },
+    { "test_id": "ambiguous-001", "category": "ambiguous", "passed": true, "detail": "Mehrdeutige Namensangabe sinnvoll interpretiert." },
+    { "test_id": "boundary-001", "category": "boundary", "passed": true, "detail": "Maximale Feldlänge korrekt gehandhabt." },
+    { "test_id": "failure-001", "category": "failure", "passed": true, "detail": "Beschädigte PDF-Datei sauber mit Fehlermeldung abgelehnt." },
+    { "test_id": "consistency-001", "category": "consistency", "passed": true, "detail": "Wiederholte Ausführung mit identischem Input liefert jetzt konsistente Feld-Reihenfolge." }
+  ]
+}
