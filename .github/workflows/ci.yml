@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json declares engines.node ">=18". The matrix is what
+        # actually holds that claim to account — if the oldest entry fails,
+        # the engines field is wrong and gets corrected, not the matrix.
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No dependencies to install — the project is deliberately zero-dep,
+      # so there is no lockfile and nothing to cache.
+      - name: Show environment
+        run: node --version
+
+      - name: Run test suite
+        run: npm test
+
+  smoke:
+    name: End-to-end smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Exercises the real pipeline the way a user does, which unit tests
+      # alone don't cover: analyzer -> evaluation -> scoring -> report files
+      # on disk, then the dashboard reading those files back.
+      - name: Evaluate the bundled fixtures
+        run: |
+          node bin/evaluate-skill.js fixtures/simple-skill --out /tmp/smoke/simple
+          node bin/evaluate-skill.js fixtures/multi-step-skill --out /tmp/smoke/multi
+
+      - name: Verify the expected report artifacts exist
+        run: |
+          set -e
+          for skill in simple multi; do
+            for f in REPORT.md scores.json test-results.json report.html; do
+              path="/tmp/smoke/$skill/skill-evaluation/$f"
+              test -s "$path" || { echo "missing or empty: $path"; exit 1; }
+            done
+          done
+          echo "All report artifacts present."
+
+      - name: Build the dashboard over those reports
+        run: |
+          node bin/dashboard.js /tmp/smoke --out /tmp/smoke/dashboard.html
+          test -s /tmp/smoke/dashboard.html
+
+      - name: Verify the evaluated skills were not modified
+        run: |
+          set -e
+          if ! git diff --quiet -- fixtures/; then
+            echo "The evaluator modified the skill it evaluated — this violates the project's core non-goal."
+            git diff --stat -- fixtures/
+            exit 1
+          fi
+          echo "Fixtures untouched, as required."
