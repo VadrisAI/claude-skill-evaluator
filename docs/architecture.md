@@ -173,3 +173,40 @@ claude-skill-evaluator/
 ## Branching
 
 Each module is built on its own branch (`module/analyzer`, `module/evaluation`, `module/scoring-report`, `module/plugin-integration`) and merged via PR against `main`.
+
+## Report Dashboard (added after all four modules merged)
+
+Not one of the original four modules — added afterwards as a fifth,
+additive, cross-cutting piece once Modules 1–4 had all landed on `main`.
+Directory: `src/dashboard/` (+ `bin/dashboard.js`, `commands/skill-dashboard.md`).
+
+It is a **read-only viewer** over Module 3's already-finalized on-disk
+output format — it consumes, but does not change, the "3 → Report Engine"
+contract above:
+
+```
+findEvaluationDirs(rootPaths) -> string[]         // paths to skill-evaluation/ dirs found under rootPaths
+collectSkillSummary(evalDir) -> {                  // reads one skill-evaluation/ dir, or null if invalid
+  evalDir, skillPath, skillName, complexityClass, version, evaluatedAt,
+  overall, scores, comparison, problemCount, testSummary, trend,
+  reportMdPath, reportHtmlPath
+} | null
+buildDashboard(rootPaths, opts) -> { file, skills: object[] }
+```
+
+**Deliberately out of scope, not oversights**:
+- It never triggers a new evaluation run. A static HTML file has no backend
+  to execute anything with — matching spec.md's "Keine eigenständige große
+  Web-Plattform nötig". Each skill's card instead shows the exact
+  `node bin/evaluate-skill.js <skill-path>` command to re-run manually.
+- It doesn't show Anthropic usage/rate-limit data — no tool available in
+  any session has access to that, so there's nothing to surface.
+- A live "notify me / start it from here" experience is a property of the
+  environment running Claude (e.g. a Claude Code Routine with a push
+  notification), not something this repo's static output can provide to an
+  arbitrary user who clones it.
+
+If a genuinely interactive dashboard (one that can kick off runs itself) is
+wanted later, that needs a real backend/server component — a deliberate
+architecture decision to make explicitly here, not something to grow
+accidentally out of this read-only viewer.

@@ -6,10 +6,12 @@
   "type": "commonjs",
   "main": "src/pipeline/index.js",
   "bin": {
-    "evaluate-skill": "bin/evaluate-skill.js"
+    "evaluate-skill": "bin/evaluate-skill.js",
+    "skill-evaluator-dashboard": "bin/dashboard.js"
   },
   "scripts": {
     "evaluate": "node bin/evaluate-skill.js",
+    "dashboard": "node bin/dashboard.js",
     "test": "node --test \"test/**/*.test.js\""
   },
   "engines": {

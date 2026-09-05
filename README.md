@@ -27,6 +27,8 @@ MVP complete: all four modules are implemented and wired together (see [`docs/ar
 
 The pipeline wiring, CLI, and slash commands run the real modules end to end — see `npm test` (46 tests across all four modules plus the pipeline integration test) and `node bin/evaluate-skill.js <skill-path>` for a live run.
 
+A fifth, additive piece was added afterwards, once all four modules had merged: a read-only **Report Dashboard** (`src/dashboard/`, `bin/dashboard.js`, `/skill-dashboard`) summarizing every evaluated skill's scores and test results in one page — see [Dashboard](#dashboard-overview-across-evaluated-skills) below.
+
 See [`docs/spec.md`](docs/spec.md) for the full product specification and [`docs/architecture.md`](docs/architecture.md) for the pipeline and module boundaries.
 
 ## Core workflow
@@ -92,6 +94,22 @@ skill-evaluation/
 Re-running the command against the same skill (or `--out` directory) after you've revised it produces `evaluation-v2.json` and a version-over-version comparison in `REPORT.md` — see `docs/spec.md` for the full comparison format.
 
 The evaluator never writes to the skill directory itself, only to `skill-evaluation/`, and it never rewrites or "fixes" the skill it evaluates — see [What this is NOT](#what-this-is-not) above.
+
+### Dashboard (overview across evaluated skills)
+
+Once you've evaluated more than one skill (or one skill more than once), get a single overview page instead of opening each report individually:
+
+```
+/skill-dashboard ./
+```
+
+or standalone:
+
+```bash
+node bin/dashboard.js ./ --out dashboard.html
+```
+
+This scans for every `skill-evaluation/` folder under the given path(s) and renders a static, read-only `dashboard.html`: overall score per skill, test pass rate, findings count, and the score trend across versions, with links to each skill's own `REPORT.md`/`report.html`. It's a viewer, not a runner — see [`src/dashboard/README.md`](src/dashboard/README.md) for why it deliberately doesn't (and, as a static file, can't) trigger a new evaluation itself.
 
 ## Development
 
