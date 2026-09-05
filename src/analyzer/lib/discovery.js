@@ -57,22 +57,24 @@ function topLevelResources(skillDir, skillMdPath) {
     });
 }
 
-function walk(dir, root, depth = 0, maxDepth = 6) {
-  if (depth > maxDepth) return [];
+function walk(dir, root) {
   const entries = fs.readdirSync(dir);
   const result = [];
 
   for (const entry of entries) {
     if (IGNORED_ENTRIES.has(entry)) continue;
     const full = path.join(dir, entry);
-    const stat = safeStat(full);
-    if (!stat) continue;
+    // Use lstat (not stat) and skip symlinks entirely: a skill has no
+    // legitimate reason to symlink into its own tree, and following one
+    // could recurse into a cycle since there is no longer a depth limit.
+    const lstat = safeLstat(full);
+    if (!lstat || lstat.isSymbolicLink()) continue;
     const relative = path.relative(root, full);
 
-    if (stat.isDirectory()) {
-      result.push({ type: 'dir', path: relative, children: walk(full, root, depth + 1, maxDepth) });
+    if (lstat.isDirectory()) {
+      result.push({ type: 'dir', path: relative, children: walk(full, root) });
     } else {
-      result.push({ type: 'file', path: relative, size: stat.size });
+      result.push({ type: 'file', path: relative, size: lstat.size });
     }
   }
 
@@ -82,6 +84,14 @@ function walk(dir, root, depth = 0, maxDepth = 6) {
 function safeStat(p) {
   try {
     return fs.statSync(p);
+  } catch {
+    return null;
+  }
+}
+
+function safeLstat(p) {
+  try {
+    return fs.lstatSync(p);
   } catch {
     return null;
   }

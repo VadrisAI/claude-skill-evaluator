@@ -9,10 +9,14 @@
 function parseFrontmatter(raw) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw);
   if (!match) {
-    return { frontmatter: {}, body: raw };
+    return { frontmatter: {}, body: raw, offset: 0 };
   }
 
   const [, rawFrontmatter, body] = match;
+  // Lines consumed by the frontmatter block (delimiters included) before
+  // `body` starts, so callers can map a body-relative line number back to
+  // its physical line in the original SKILL.md.
+  const offset = (raw.slice(0, raw.length - body.length).match(/\n/g) || []).length;
   const frontmatter = {};
   const lines = rawFrontmatter.split(/\r?\n/);
   let currentKey = null;
@@ -41,7 +45,7 @@ function parseFrontmatter(raw) {
     }
   }
 
-  return { frontmatter, body };
+  return { frontmatter, body, offset };
 }
 
 function stripQuotes(value) {

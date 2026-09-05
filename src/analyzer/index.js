@@ -15,7 +15,7 @@ const { classifyComplexity } = require('./lib/complexity');
  */
 function analyzeSkill(skillPath) {
   const discovery = discoverSkill(skillPath);
-  const { frontmatter, body } = parseFrontmatter(discovery.skillMdContent || '');
+  const { frontmatter, body, offset } = parseFrontmatter(discovery.skillMdContent || '');
 
   const structure = buildStructure({
     frontmatter,
@@ -23,6 +23,7 @@ function analyzeSkill(skillPath) {
     resources: discovery.resources,
     tree: discovery.tree,
     hasSkillMd: discovery.hasSkillMd,
+    frontmatterOffset: offset,
   });
 
   const { complexity_class, complexity_signals } = classifyComplexity(structure);

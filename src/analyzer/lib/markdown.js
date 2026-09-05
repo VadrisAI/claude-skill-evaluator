@@ -11,9 +11,33 @@ function splitLines(body) {
   return body.split(/\r?\n/);
 }
 
+/**
+ * Returns a same-length boolean array marking which lines fall inside a
+ * ``` fenced code block, so heading/list extraction can ignore markdown
+ * syntax that only appears in an example rather than real skill content.
+ * The fence delimiter lines themselves are marked true (excluded).
+ */
+function computeFenceMask(lines) {
+  const mask = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^```/.test(line.trim())) {
+      mask.push(true);
+      inFence = !inFence;
+      continue;
+    }
+    mask.push(inFence);
+  }
+  return mask;
+}
+
 function extractHeadings(body) {
   const headings = [];
-  splitLines(body).forEach((line, idx) => {
+  const lines = splitLines(body);
+  const fenced = computeFenceMask(lines);
+
+  lines.forEach((line, idx) => {
+    if (fenced[idx]) return;
     const match = /^(#{1,6})\s+(.*)$/.exec(line);
     if (match) {
       headings.push({ level: match[1].length, text: match[2].trim(), line: idx + 1 });
@@ -30,10 +54,12 @@ function extractHeadings(body) {
  */
 function extractListItems(body) {
   const lines = splitLines(body);
+  const fenced = computeFenceMask(lines);
   const headings = extractHeadings(body);
   const items = [];
 
   lines.forEach((line, idx) => {
+    if (fenced[idx]) return;
     const ordered = /^(\s*)(\d+)[.)]\s+(.*)$/.exec(line);
     const unordered = /^(\s*)[-*+]\s+(.*)$/.exec(line);
     const m = ordered || unordered;

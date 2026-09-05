@@ -15,9 +15,10 @@ const KNOWN_TOOL_NAMES = /^(git|npm|npx|pip3?|python3?|node|bash|sh|curl|wget|do
  * deterministic text/filesystem heuristic — no LLM call — so re-running the
  * analyzer on an unchanged skill always yields the same output.
  */
-function buildStructure({ frontmatter, body, resources, tree, hasSkillMd }) {
+function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontmatterOffset = 0 }) {
   const headings = extractHeadings(body);
   const listItems = extractListItems(body);
+  const locate = (bodyLine) => `SKILL.md:${bodyLine + frontmatterOffset}`;
 
   const steps = extractSteps(listItems);
   const inputs = extractSection(body, headings, /input/i);
@@ -32,7 +33,7 @@ function buildStructure({ frontmatter, body, resources, tree, hasSkillMd }) {
     steps: steps.map((s) => ({
       id: s.id,
       description: s.text,
-      location: `SKILL.md:${s.line}`,
+      location: locate(s.line),
       tools: s.tools,
       references_steps: s.referencesSteps,
     })),
@@ -41,12 +42,12 @@ function buildStructure({ frontmatter, body, resources, tree, hasSkillMd }) {
     dependencies: extractDependencies(steps),
     tool_dependencies: extractToolDependencies({ frontmatter, body, tree }),
     decision_points: scanKeywordLines(body, DECISION_RE).map((r) => ({
-      location: r.location,
+      location: locate(r.line),
       condition: r.detail,
     })),
-    feedback_loops: scanKeywordLines(body, FEEDBACK_RE),
-    retry_mechanisms: scanKeywordLines(body, RETRY_RE),
-    failure_handling: scanKeywordLines(body, FAILURE_RE),
+    feedback_loops: scanKeywordLines(body, FEEDBACK_RE).map((r) => ({ location: locate(r.line), detail: r.detail })),
+    retry_mechanisms: scanKeywordLines(body, RETRY_RE).map((r) => ({ location: locate(r.line), detail: r.detail })),
+    failure_handling: scanKeywordLines(body, FAILURE_RE).map((r) => ({ location: locate(r.line), detail: r.detail })),
   };
 }
 
@@ -195,7 +196,7 @@ function scanKeywordLines(body, regex) {
     const trimmed = line.trim();
     if (!trimmed || /^#/.test(trimmed)) return;
     if (regex.test(trimmed)) {
-      results.push({ location: `SKILL.md:${idx + 1}`, detail: trimmed });
+      results.push({ line: idx + 1, detail: trimmed });
     }
   });
 

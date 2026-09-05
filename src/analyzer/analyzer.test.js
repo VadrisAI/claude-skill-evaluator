@@ -3,8 +3,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 
 const { analyzeSkill } = require('./index');
+
+function makeTempSkill(skillMdContent, extraFiles = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'analyzer-test-'));
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), skillMdContent);
+  for (const [relPath, content] of Object.entries(extraFiles)) {
+    const full = path.join(dir, relPath);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, content);
+  }
+  return dir;
+}
 
 const FIXTURES = path.join(__dirname, '..', '..', 'fixtures');
 const SIMPLE_SKILL = path.join(FIXTURES, 'simple-skill');
@@ -79,6 +92,64 @@ test('multi-step skill: classifies as multi_step_process with supporting signals
 
   assert.equal(result.complexity_class, 'multi_step_process');
   assert.ok(result.complexity_signals.length >= 2);
+});
+
+test('multi-step skill: step locations report the physical SKILL.md line, not the frontmatter-stripped offset', () => {
+  const result = analyzeSkill(MULTI_STEP_SKILL);
+  const physicalLine = fs
+    .readFileSync(path.join(MULTI_STEP_SKILL, 'SKILL.md'), 'utf8')
+    .split(/\r?\n/)
+    .findIndex((l) => l.includes('Run `scripts/extract.py`')) + 1;
+
+  assert.equal(result.structure.steps[0].location, `SKILL.md:${physicalLine}`);
+});
+
+test('code-fenced example lists and headings are ignored, not treated as real steps', () => {
+  const dir = makeTempSkill(
+    [
+      '---',
+      'name: doc-example',
+      'description: Documents a sample workflow but only performs one simple task.',
+      '---',
+      '',
+      '# Doc Example',
+      '',
+      'Reformat the text the user gives you into title case.',
+      '',
+      'Here is what a *user\'s own* multi-step pipeline might look like, for illustration only:',
+      '',
+      '```markdown',
+      '## Workflow',
+      '1. Run `scripts/one.py`',
+      '2. Run `scripts/two.py`',
+      '3. Run `scripts/three.py`',
+      '```',
+    ].join('\n')
+  );
+
+  try {
+    const result = analyzeSkill(dir);
+    assert.equal(result.structure.step_count, 0, 'fenced example steps must not be counted as real steps');
+    assert.equal(result.complexity_class, 'simple');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('discovers scripts nested deeper than a fixed depth limit', () => {
+  const dir = makeTempSkill('---\nname: deep-nest\ndescription: Uses a deeply nested helper script.\n---\n\nRun the helper.', {
+    'scripts/a/b/c/d/e/f/helper.py': '# nested helper\n',
+  });
+
+  try {
+    const result = analyzeSkill(dir);
+    assert.ok(
+      result.structure.tool_dependencies.includes('scripts/a/b/c/d/e/f/helper.py'),
+      `expected nested script in tool_dependencies, got ${JSON.stringify(result.structure.tool_dependencies)}`
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('throws a clear error for a non-existent path', () => {
