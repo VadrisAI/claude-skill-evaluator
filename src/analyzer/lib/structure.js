@@ -39,6 +39,10 @@ function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontm
     steps: steps.map((s) => ({
       id: s.id,
       description: s.text,
+      // Present for heading-based steps, where `description` is only the
+      // heading's label; empty for list-based steps, whose description is
+      // already the full instruction.
+      detail: s.detail || '',
       location: locate(s.line),
       tools: s.tools,
       references_steps: s.referencesSteps,
@@ -239,7 +243,12 @@ function extractStepHeadings(headings, body = '') {
 
   return ordered.map((m, idx) => {
     const id = idx + 1;
-    const title = m.heading.text.trim();
+    // The step's own text, without the "Step 3:" / "Phase 2 —" label: the
+    // number is already carried by `id`, and leaving the label in front made
+    // every heading-based step read as starting with the word "Step", so
+    // downstream checks on how a step is phrased (e.g. "is this an
+    // actionable instruction?") could never see the actual wording.
+    const title = m.title || m.heading.text.trim();
     // A step's substance lives in the prose under its heading, not in the
     // heading text — that's where "the amount from step 1" or "return to
     // step 4" actually appear, so the section body has to be scanned too.
@@ -270,11 +279,23 @@ function extractStepHeadings(headings, body = '') {
     return {
       id,
       text: title,
+      // The instruction itself lives in the prose under the heading; the
+      // heading is only its label. Consumers that judge *how a step is
+      // worded* (is it actionable? is it specific enough?) have to look
+      // here, or they end up grading a two-word title like "Submit" as
+      // "suspiciously short".
+      detail: normalizeWhitespace(sectionText).slice(0, MAX_STEP_DETAIL_CHARS),
       line: m.heading.line,
       referencesSteps: [...new Set(refs)],
       tools: [...new Set(tools)],
     };
   });
+}
+
+const MAX_STEP_DETAIL_CHARS = 2000;
+
+function normalizeWhitespace(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
 /**

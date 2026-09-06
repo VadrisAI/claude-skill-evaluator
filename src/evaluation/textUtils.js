@@ -3,8 +3,20 @@
 const VAGUE_LANGUAGE_PATTERN =
   /\b(vielleicht|möglicherweise|eventuell|ggf\.?|unter umständen|kind of|sort of|maybe|perhaps|if possible|should probably|try to|versuche(?:n)? es)\b/i;
 
+// Verbs an instruction can open with. Measured against a 40-skill corpus:
+// the original list was missing extremely common ones — "ask" alone opened
+// 21 steps that were consequently reported as "not phrased as an action",
+// and it also broke the conditional path below ("If X, ask the user …"),
+// since that looks for an imperative in the clause after the condition.
+// A whitelist can never be complete; it is kept deliberately generous, and
+// the rule using it only fires when *most* steps miss, not a single one.
 const IMPERATIVE_START_PATTERN =
-  /^(erstelle|prüfe|lies|führe|vergleiche|analysiere|generiere|stelle sicher|verwende|ergänze|entferne|öffne|schreibe|lösche|aktualisiere|sortiere|filtere|berechne|extrahiere|exportiere|importiere|wähle|kombiniere|teile|konvertiere|formatiere|sende|empfange|warte|wiederhole|starte|stoppe|beende|speichere|lade|rendere|baue|verarbeite|sammle|ordne|gruppiere|kopiere|verschiebe|gib|check|read|create|run|verify|analyze|generate|ensure|use|add|remove|open|write|list|call|invoke|parse|validate|render|extract|build|fetch|load|save|convert|compute|download|upload|count|format|transform|summarize|respond|output|return|apply|replace|insert|update|delete|move|copy|close|start|stop|launch|execute|retry|wait|find|search|filter|sort|group|merge|split|choose|select|pick|report|compare|combine|iterate|repeat|loop|abort|cancel|notify|inform|log|print|display|show)\b/i;
+  /^(erstelle|prüfe|lies|führe|vergleiche|analysiere|generiere|stelle sicher|verwende|ergänze|entferne|öffne|schreibe|lösche|aktualisiere|sortiere|filtere|berechne|extrahiere|exportiere|importiere|wähle|kombiniere|teile|konvertiere|formatiere|sende|empfange|warte|wiederhole|starte|stoppe|beende|speichere|lade|rendere|baue|verarbeite|sammle|ordne|gruppiere|kopiere|verschiebe|gib|frage|bestätige|hole|zeige|nutze|achte|beachte|check|read|create|run|verify|analyze|generate|ensure|use|add|remove|open|write|list|call|invoke|parse|validate|render|extract|build|fetch|load|save|convert|compute|download|upload|count|format|transform|summarize|respond|output|return|apply|replace|insert|update|delete|move|copy|close|start|stop|launch|execute|retry|wait|find|search|filter|sort|group|merge|split|choose|select|pick|report|compare|combine|iterate|repeat|loop|abort|cancel|notify|inform|log|print|display|show|ask|confirm|gather|present|identify|research|review|provide|get|send|spawn|hand|look|scan|determine|navigate|click|enter|submit|capture|define|document|prepare|clean|test|publish|share|translate|draft|edit|adjust|collect|assign|label|rank|rate|score|measure|track|monitor|detect|resolve|handle|skip|exit|quit|describe|explain|note|avoid|keep|make|set|put|take|give|tell|follow|continue|proceed|include|exclude|mark|store|offer|suggest|recommend|prompt|reply|answer|greet|thank|escalate|verify|double-check|cross-check|flag|warn|remind|schedule|assemble|compile|deploy|install|configure|import|export|drop|discard|ignore|retain|preserve|strip|trim|append|prepend|fill|populate|refresh|reload|reset|clear|purge|archive|restore|sync|push|pull|commit|tag|release|lint|treat|consider|prefer|default|fall back|fallback|surface|summarise|analyse|prioritise|prioritize|organise|organize)\b/i;
+
+// A leading adverb or sequencing word does not stop a sentence from being an
+// instruction: "Silently drop it", "Then run the script", "First, check X".
+const LEADING_MODIFIER_RE =
+  /^(?:(?:[a-zäöüß]+ly|then|next|first|finally|afterwards?|always|never|instead|also|now|again|optionally|briefly|simply|just)\b[,\s]+)+/i;
 
 // A conditional clause ("If X, retry Y." / "Depending on Z, choose W.") is
 // still an actionable instruction — the leading condition just precedes the
@@ -40,7 +52,7 @@ function containsVagueLanguage(text) {
 }
 
 function looksImperative(text) {
-  const trimmed = text.trim();
+  const trimmed = text.trim().replace(LEADING_MODIFIER_RE, '');
   if (IMPERATIVE_START_PATTERN.test(trimmed)) return true;
   if (CONDITIONAL_LEAD_RE.test(trimmed)) {
     // Check every comma/semicolon-separated clause after the condition for

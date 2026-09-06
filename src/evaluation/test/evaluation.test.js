@@ -256,3 +256,54 @@ test('a skill with no content at all is still CRITICAL', () => {
     'a genuinely empty skill must still be reported'
   );
 });
+
+test('common instruction verbs are recognised as actionable', () => {
+  const { looksImperative } = require('../textUtils');
+  // Each of these opened a step in the real-skill corpus and was reported
+  // as "not phrased as an action"; "ask" alone accounted for 21 steps.
+  for (const text of [
+    'Ask what I want to cancel.',
+    'Confirm what you found with the user.',
+    'Research the fastest cancellation method.',
+    'Gather the receipts before continuing.',
+    'Silently drop the row and continue.',
+    'Then run the validation script.',
+    'If the upload fails, ask the user for a new file.',
+  ]) {
+    assert.ok(looksImperative(text), `should read as actionable: ${text}`);
+  }
+
+  // …without turning descriptive prose into instructions.
+  for (const text of [
+    'Design Philosophy Creation (.md file)',
+    'The report contains three sections.',
+    'This section describes the output format.',
+  ]) {
+    assert.ok(!looksImperative(text), `should NOT read as actionable: ${text}`);
+  }
+});
+
+test('a short heading step is not reported as too short when it has detail', () => {
+  const { analyzeSkill } = require('../../analyzer');
+  const path2 = require('node:path');
+  const fs2 = require('node:fs');
+  const os2 = require('node:os');
+
+  const dir = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'eval-short-'));
+  fs2.writeFileSync(
+    path2.join(dir, 'SKILL.md'),
+    [
+      '---', 'name: short', 'description: Heading workflow with a terse label.', '---', '',
+      '# Short', '',
+      '## Step 1: Prepare the input', '', 'Read the source file and normalise it.', '',
+      '## Step 2: Submit', '', 'Send the normalised payload to the endpoint and confirm the response.',
+    ].join('\n')
+  );
+  try {
+    const output = evaluateSkill(analyzeSkill(dir));
+    const shortFindings = output.findings.filter((f) => /Instruction-Klarheit/.test(f.area));
+    assert.deepEqual(shortFindings, [], 'a two-word heading label with prose beneath it is not a too-short instruction');
+  } finally {
+    fs2.rmSync(dir, { recursive: true, force: true });
+  }
+});
