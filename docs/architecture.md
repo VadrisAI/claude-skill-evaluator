@@ -45,6 +45,7 @@ These are the boundaries every session must honor so the pieces integrate withou
     "resources": ["references/", "scripts/", "assets/"],
     "purpose": "string, best-effort extraction from frontmatter description / first paragraph",
     "instruction_count": 0,
+    "prose_paragraphs": 0,
     "step_count": 0,
     "steps": [
       {"id": 1, "description": "string", "location": "string (e.g. SKILL.md:42)", "tools": [], "references_steps": []}
@@ -88,6 +89,8 @@ Notes on the additive fields (added by the analyzer session, superseding the ear
 - **`tool_dependencies` was heavily inflated** — any backticked token containing a dot qualified, so one real skill reported 77 "tools" consisting mostly of XML tags (`<w:del/>`), code constants (`WidthType.DXA`), bare extensions (`.docx`) and 39 schema files. It is now restricted to executables the skill runs (`.py`, `.sh`, `.js`, …) and known CLI tools; everything merely *read* moved to the new additive `referenced_files` field.
 
 **2026-09-06 — `unreferenced_scripts` (additive).** Whether a bundled script is actually dead code cannot be decided from the SKILL.md text alone: skills routinely ship script libraries whose helpers are imported by other scripts, invoked without their extension (`python scripts/check_fillable_fields`), or addressed in Python's dotted module notation (`python -m scripts.aggregate_benchmark`). Module 2's orphaned-script rule previously inferred this from `step.tools`, which had two failure modes measured across the 40-skill corpus: a `simple` skill has no steps at all, so *every* script it ships was reported orphaned (one real skill produced 15 such findings), and helper modules imported by other scripts were never recognised as used — **55% of those findings were false**. Establishing the fact needs file contents, which only the analyzer has, so it is determined here and merely judged by Module 2. Effect on the corpus: orphaned-script findings dropped from 65 to 2, both manually verified as genuine; total findings across all 40 skills went from 204 to 141. Module 2 falls back to the old `step.tools` heuristic only when the field is absent (older analyzer output).
+
+**2026-09-06 — `prose_paragraphs` (additive), and `purpose` is always a string.** `instruction_count` counts list items only, so a skill written as flowing text scored zero — and Module 2's `instruction-count-nonzero` rule reported it **CRITICAL: "contains no recognisable instructions"**. That hit three real skills (`learn`, `pages`, `built-in-browser`), all of which are perfectly good skills that simply favour prose over bullets; the rule even stated the premise outright ("descriptive prose alone is not enough; ideally a list"), which the corpus contradicts. `prose_paragraphs` counts body text that is neither heading, list item, nor fenced code, letting consumers tell an *empty* skill from a *prose* one. The rule now fires only when a skill has no list items, no steps **and** no prose — a genuinely empty SKILL.md — and falls back safely when the field is absent. Separately, `purpose` is now coerced to a string: a YAML block scalar (`description: |`) whose text contains `- ` bullets was parsed as a list, so one real skill returned an array where the contract promises a string.
 
 ### 2 → 3: Evaluation/Test output → Scoring input
 ```json
