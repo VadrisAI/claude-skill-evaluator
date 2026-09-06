@@ -114,9 +114,14 @@ This scans for every `skill-evaluation/` folder under the given path(s) and rend
 ## Development
 
 ```bash
-npm install
-npm test
+npm test          # every *.test.js in the repo, across all modules
 ```
+
+There are no dependencies to install — the project is deliberately zero-dep and runs on Node alone.
+
+`npm test` discovers test files rather than matching a fixed pattern, and prints the list it found on every run. (It used to be a glob that quietly matched only the pipeline tests, so most of the suite never ran under the project's own test command.)
+
+CI runs the same suite on Node 18, 20, and 22, plus an end-to-end smoke test that evaluates the bundled fixtures, builds a dashboard from the results, and asserts the evaluated skills were left untouched — the project's core non-goal, enforced automatically rather than by trust.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how the four modules fit together and how to contribute to one of them.
 
