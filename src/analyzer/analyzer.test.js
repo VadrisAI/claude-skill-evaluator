@@ -380,6 +380,23 @@ test('unreferenced_scripts ignores scripts that other bundled files use', () => 
   }
 });
 
+test('a shared basename does not let one reference cover both scripts', () => {
+  const dir = makeTempSkill(
+    ['---', 'name: dup', 'description: Two scripts share a filename.', '---', '', '# Dup', '', 'Run `scripts/entry.py` to start.'].join('\n'),
+    { 'scripts/entry.py': 'print("main")\n', 'scripts/helpers/entry.py': 'print("unused")\n' }
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.deepEqual(
+      structure.unreferenced_scripts,
+      ['scripts/helpers/entry.py'],
+      'the referenced path must not vouch for a same-named script elsewhere'
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a script mentioning only its own filename does not count as referenced', () => {
   const dir = makeTempSkill(
     ['---', 'name: selfref', 'description: Ships one script nothing calls.', '---', '', '# Selfref', '', 'Nothing here calls it.'].join('\n'),

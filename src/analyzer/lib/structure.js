@@ -350,12 +350,24 @@ function extractUnreferencedScripts({ body, tree, skillDir }) {
     .filter((l) => /\b(import|require|from|source|\.\/)\b/.test(l))
     .join('\n');
 
+  // A bare filename only identifies a script when nothing else shares it.
+  // With `scripts/entry.py` and `scripts/helpers/entry.py` both present, a
+  // reference to either would otherwise mark both as used, hiding a real
+  // orphan. For ambiguous names only full-path matches count.
+  const basenameCounts = new Map();
+  for (const s of scripts) {
+    const b = s.split('/').pop();
+    basenameCounts.set(b, (basenameCounts.get(b) || 0) + 1);
+  }
+
   return scripts
     .filter((script) => {
       const base = script.split('/').pop();
+      const baseIsUnique = basenameCounts.get(base) === 1;
       // Package markers are a language convention, never named in prose.
       if (base === '__init__.py') return false;
-      if (haystack.includes(script) || haystack.includes(base)) return false;
+      if (haystack.includes(script)) return false;
+      if (baseIsUnique && haystack.includes(base)) return false;
 
       // Invocations often drop the extension: a real skill documents
       // "python scripts/check_fillable_fields <file.pdf>". The full path
@@ -370,7 +382,7 @@ function extractUnreferencedScripts({ body, tree, skillDir }) {
       // Restricted to import-like lines so a short stem ("base") doesn't
       // match unrelated prose.
       const stem = base.replace(EXECUTABLE_EXT, '');
-      if (stem && new RegExp(`\\b${escapeRegExp(stem)}\\b`).test(importLines)) return false;
+      if (baseIsUnique && stem && new RegExp(`\\b${escapeRegExp(stem)}\\b`).test(importLines)) return false;
 
       return true;
     })
