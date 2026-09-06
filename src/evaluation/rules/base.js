@@ -2,7 +2,7 @@
 
 const { createFinding } = require('../findings');
 const { containsVagueLanguage, looksImperative, jaccardSimilarity } = require('../textUtils');
-const { collectTextUnits } = require('../structureText');
+const { collectTextUnits, stepText } = require('../structureText');
 
 function arr(x) {
   return Array.isArray(x) ? x : [];
@@ -165,7 +165,12 @@ const baseRules = [
     testCategory: 'standard',
     evaluate(structure) {
       const units = collectTextUnits(structure);
-      const hits = units.filter((u) => u.text.trim().length > 0 && u.text.trim().length < 15);
+      // A heading-based step's primary text is its label ("Submit"), with the
+      // instruction in the prose below it. Such a label is legitimately
+      // short, so only flag units that have no detail text behind them.
+      const hits = units.filter(
+        (u) => !u.detailText && u.text.trim().length > 0 && u.text.trim().length < 15
+      );
       const passed = hits.length === 0;
       const findings = hits.map((u) =>
         createFinding({
@@ -345,7 +350,7 @@ const baseRules = [
       if (steps.length === 0) {
         return { passed: true, detail: 'Keine nummerierten Schritte zu prüfen.', findings: [] };
       }
-      const imperativeCount = steps.filter((s) => looksImperative(s.description)).length;
+      const imperativeCount = steps.filter((s) => looksImperative(stepText(s))).length;
       const ratio = imperativeCount / steps.length;
       const passed = ratio >= 0.5;
       const findings = passed
