@@ -12,7 +12,7 @@
   "scripts": {
     "evaluate": "node bin/evaluate-skill.js",
     "dashboard": "node bin/dashboard.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node scripts/run-tests.js"
   },
   "engines": {
     "node": ">=18"
