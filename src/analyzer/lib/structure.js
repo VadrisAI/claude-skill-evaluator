@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 const { splitLines, computeFenceMask, extractHeadings, extractListItems } = require('./markdown');
 
 const STEP_SECTION_RE = /\b(steps?|workflow|process|procedure|instructions)\b/i;
@@ -17,7 +20,7 @@ const REFERENCED_FILE_EXT = /\.(md|json|ya?ml|xml|xsd|csv|tsv|txt|html?|css|svg|
  * deterministic text/filesystem heuristic — no LLM call — so re-running the
  * analyzer on an unchanged skill always yields the same output.
  */
-function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontmatterOffset = 0 }) {
+function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontmatterOffset = 0, skillDir = null }) {
   const headings = extractHeadings(body);
   const listItems = extractListItems(body);
   const locate = (bodyLine) => `SKILL.md:${bodyLine + frontmatterOffset}`;
@@ -44,6 +47,7 @@ function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontm
     dependencies: extractDependencies(steps),
     tool_dependencies: extractToolDependencies({ frontmatter, body, tree }),
     referenced_files: extractReferencedFiles({ body, tree }),
+    unreferenced_scripts: extractUnreferencedScripts({ body, tree, skillDir }),
     decision_points: scanKeywordLines(body, DECISION_RE).map((r) => ({
       location: locate(r.line),
       condition: r.detail,
@@ -317,6 +321,86 @@ function extractReferencedFiles({ body, tree }) {
   }
 
   return [...files].sort();
+}
+
+/**
+ * Executable scripts that nothing in the skill refers to — neither the
+ * SKILL.md nor any other file bundled with it.
+ *
+ * The "nor any other file" half matters: a skill's scripts routinely import
+ * each other, and a helper module invoked only from another script is not
+ * dead code. Judging that from the SKILL.md text alone (as the evaluation
+ * engine previously had to) produced a 55% false-positive rate across a
+ * 40-skill corpus — every `scripts/office/helpers/*.py` in a real skill got
+ * reported as orphaned. Determining it needs file contents, which only the
+ * analyzer has, so the fact is established here and the evaluation engine
+ * judges it.
+ */
+function extractUnreferencedScripts({ body, tree, skillDir }) {
+  const files = collectFiles(tree).map((f) => f.path.replace(/\\/g, '/'));
+  const scripts = files.filter((p) => EXECUTABLE_EXT.test(p));
+  if (scripts.length === 0) return [];
+
+  // Read every other bundled text file once, rather than per script.
+  const otherFileContents = skillDir ? readBundledText(skillDir, files, scripts) : '';
+  const haystack = `${body}\n${otherFileContents}`;
+
+  const importLines = haystack
+    .split(/\r?\n/)
+    .filter((l) => /\b(import|require|from|source|\.\/)\b/.test(l))
+    .join('\n');
+
+  return scripts
+    .filter((script) => {
+      const base = script.split('/').pop();
+      // Package markers are a language convention, never named in prose.
+      if (base === '__init__.py') return false;
+      if (haystack.includes(script) || haystack.includes(base)) return false;
+
+      // Invocations often drop the extension: a real skill documents
+      // "python scripts/check_fillable_fields <file.pdf>". The full path
+      // is specific enough to match on directly.
+      const pathStem = script.replace(EXECUTABLE_EXT, '');
+      if (pathStem !== script && haystack.includes(pathStem)) return false;
+      // Same path in Python module notation: "python -m scripts.aggregate_benchmark".
+      if (pathStem !== script && haystack.includes(pathStem.split('/').join('.'))) return false;
+
+      // Imports name the module without its extension —
+      // "from helpers.pptx_chart import ..." refers to pptx_chart.py.
+      // Restricted to import-like lines so a short stem ("base") doesn't
+      // match unrelated prose.
+      const stem = base.replace(EXECUTABLE_EXT, '');
+      if (stem && new RegExp(`\\b${escapeRegExp(stem)}\\b`).test(importLines)) return false;
+
+      return true;
+    })
+    .sort();
+}
+
+const MAX_SCANNED_FILE_BYTES = 512 * 1024;
+
+function readBundledText(skillDir, allFiles, scripts) {
+  const parts = [];
+  for (const rel of allFiles) {
+    // A script naming itself proves nothing; other files (including other
+    // scripts) are what establish a reference.
+    const full = path.join(skillDir, rel);
+    try {
+      const stat = fs.statSync(full);
+      if (!stat.isFile() || stat.size > MAX_SCANNED_FILE_BYTES) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      // Strip self-references so a script mentioning its own filename in a
+      // docstring doesn't mark itself as referenced.
+      parts.push(scripts.includes(rel) ? text.split(rel.split('/').pop()).join('') : text);
+    } catch {
+      // Unreadable or binary file — nothing to learn from it.
+    }
+  }
+  return parts.join('\n');
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function collectFiles(tree, acc = []) {

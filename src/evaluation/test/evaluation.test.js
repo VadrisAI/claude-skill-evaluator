@@ -170,3 +170,21 @@ test('integration: evaluateSkill runs end-to-end against the real Analyzer outpu
   assertContractShape(multiStep);
   assert.equal(multiStep.complexity_class, 'multi_step_process');
 });
+
+test('a simple skill with a script library is not reported as all-orphaned', () => {
+  // Before this guard, the rule only looked at step.tools — so a `simple`
+  // skill (zero steps by definition) had *every* script it ships reported
+  // as orphaned. One real skill produced 15 such findings, all false.
+  const { analyzeSkill } = require('../../analyzer');
+  const repoRoot = path.join(__dirname, '..', '..', '..');
+
+  const output = evaluateSkill(analyzeSkill(path.join(repoRoot, 'fixtures', 'catalog-skill')));
+  assert.equal(output.complexity_class, 'simple', 'fixture should classify as simple (no sequence)');
+
+  const orphanFindings = output.findings.filter((f) => /Ressource "/.test(f.location || ''));
+  assert.deepEqual(
+    orphanFindings.map((f) => f.location),
+    [],
+    'scripts documented in the SKILL.md must not be reported as orphaned just because the skill has no steps'
+  );
+});

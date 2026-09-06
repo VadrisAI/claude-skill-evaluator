@@ -349,6 +349,50 @@ test('referenced_files lists only files the SKILL.md actually mentions', () => {
   }
 });
 
+test('unreferenced_scripts ignores scripts that other bundled files use', () => {
+  // Modelled on real skills: a helper imported by another script, a tool
+  // invoked without its extension, a module referenced in Python's dotted
+  // notation, and a package marker — none of these are orphans.
+  const dir = makeTempSkill(
+    [
+      '---', 'name: bundle', 'description: Ships a small script library.', '---', '',
+      '# Bundle', '',
+      'Run `python scripts/entry` to start, and `python -m scripts.reporting` for a summary.',
+    ].join('\n'),
+    {
+      'scripts/__init__.py': '\n',
+      'scripts/entry.py': 'from helpers.parse import parse_it\n',
+      'scripts/reporting.py': 'print("report")\n',
+      'scripts/helpers/__init__.py': '\n',
+      'scripts/helpers/parse.py': 'def parse_it(): pass\n',
+      'scripts/genuinely_unused.py': 'print("nobody calls me")\n',
+    }
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.deepEqual(
+      structure.unreferenced_scripts,
+      ['scripts/genuinely_unused.py'],
+      `only the truly unused script should be flagged, got ${JSON.stringify(structure.unreferenced_scripts)}`
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a script mentioning only its own filename does not count as referenced', () => {
+  const dir = makeTempSkill(
+    ['---', 'name: selfref', 'description: Ships one script nothing calls.', '---', '', '# Selfref', '', 'Nothing here calls it.'].join('\n'),
+    { 'scripts/lonely.py': '"""Usage: python lonely.py <arg>"""\n' }
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.deepEqual(structure.unreferenced_scripts, ['scripts/lonely.py']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('throws a clear error for a non-existent path', () => {
   assert.throws(() => analyzeSkill(path.join(FIXTURES, 'does-not-exist')), /does not exist/);
 });
