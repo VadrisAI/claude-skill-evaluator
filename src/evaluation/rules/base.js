@@ -55,22 +55,39 @@ const baseRules = [
     metric: 'instruction_quality',
     testCategory: 'standard',
     evaluate(structure) {
-      const count = structure.instruction_count || 0;
-      const passed = count > 0;
-      if (passed) return { passed, detail: `${count} Instruktion(en) erkannt.`, findings: [] };
+      const listItems = structure.instruction_count || 0;
+      const steps = structure.step_count || 0;
+      // Prose counts as instruction content. Many real skills — including
+      // Anthropic's own `learn`, `pages` and `built-in-browser` — carry
+      // their guidance as flowing text with few or no bullets. Judging by
+      // list items alone reported all three as containing "no instructions
+      // at all" at CRITICAL severity, which is simply wrong: a skill is not
+      // defective for choosing prose over bullets, and this tool does not
+      // grade formatting preferences.
+      const prose = typeof structure.prose_paragraphs === 'number' ? structure.prose_paragraphs : null;
+      const hasContent = listItems > 0 || steps > 0 || (prose === null ? false : prose > 0);
+
+      if (hasContent) {
+        const parts = [];
+        if (listItems > 0) parts.push(`${listItems} Listen-Instruktion(en)`);
+        if (steps > 0) parts.push(`${steps} Schritt(e)`);
+        if (prose > 0) parts.push(`${prose} Fließtext-Absatz/-Absätze`);
+        return { passed: true, detail: `Instruktiver Inhalt erkannt: ${parts.join(', ')}.`, findings: [] };
+      }
+
       return {
-        passed,
-        detail: 'Keine Instruktionen erkannt.',
+        passed: false,
+        detail: 'Keine Instruktionen erkannt — weder Listen, Schritte noch Fließtext.',
         findings: [
           createFinding({
             area: 'Instructions',
             location: 'Gesamter Skill',
-            problem: 'Der Skill enthält keine erkennbaren Instruktionen (Listenpunkte).',
-            cause: 'Der Inhalt der SKILL.md besteht nicht aus vom Analyzer erkennbaren Anweisungen (z.B. leere Datei oder rein beschreibender Fließtext ohne Liste).',
-            impact: 'Claude erhält keine konkrete Anleitung, was beim Aktivieren des Skills zu tun ist.',
-            improvement_direction: 'Konkrete, handlungsorientierte Anweisungen ergänzen, die beschreiben, was bei Aktivierung des Skills zu tun ist.',
-            watch_for: 'Beschreibender Fließtext allein reicht nicht aus; es braucht ausführbare Schritte, idealerweise als Liste.',
-            context: 'Analyzer-Ergebnis: structure.instruction_count = 0.',
+            problem: 'Der Skill enthält überhaupt keinen instruktiven Inhalt: weder Listenpunkte noch Schritte noch beschreibenden Fließtext.',
+            cause: 'Die SKILL.md ist leer oder besteht ausschließlich aus Überschriften, Codeblöcken bzw. Metadaten.',
+            impact: 'Claude erhält keine Anleitung, was beim Aktivieren des Skills zu tun ist — der Skill kann seine Aufgabe nicht erfüllen.',
+            improvement_direction: 'Beschreiben, was bei Aktivierung des Skills geschehen soll. Ob das als Liste, als Schrittfolge oder als Fließtext geschieht, ist eine Stilfrage und für diese Prüfung unerheblich.',
+            watch_for: 'Diese Prüfung schlägt nur an, wenn gar kein Inhalt vorhanden ist. Ein rein in Prosa geschriebener Skill ist ausdrücklich in Ordnung.',
+            context: `Analyzer-Ergebnis: instruction_count = ${listItems}, step_count = ${steps}, prose_paragraphs = ${prose === null ? 'nicht gemeldet' : prose}.`,
             severity: 'CRITICAL',
             metric: 'instruction_quality',
           }),

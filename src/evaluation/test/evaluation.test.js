@@ -188,3 +188,71 @@ test('a simple skill with a script library is not reported as all-orphaned', () 
     'scripts documented in the SKILL.md must not be reported as orphaned just because the skill has no steps'
   );
 });
+
+test('a prose-only skill is not reported as having no instructions', () => {
+  // Anthropic's own `learn`, `pages` and `built-in-browser` are written as
+  // flowing text with few or no bullets. Judging instruction content by
+  // list items alone flagged all three CRITICAL — "contains no recognisable
+  // instructions" — which is a formatting preference, not a defect.
+  const proseSkill = {
+    skill_path: './prose-skill',
+    complexity_class: 'simple',
+    structure: {
+      has_skill_md: true,
+      resources: [],
+      purpose: 'Guides the reader in prose.',
+      instruction_count: 0,
+      prose_paragraphs: 12,
+      step_count: 0,
+      steps: [],
+      inputs: [],
+      outputs: [],
+      dependencies: [],
+      tool_dependencies: [],
+      referenced_files: [],
+      unreferenced_scripts: [],
+      decision_points: [],
+      feedback_loops: [],
+      retry_mechanisms: [],
+      failure_handling: [],
+    },
+    complexity_signals: ['No ordered steps detected.'],
+  };
+
+  const output = evaluateSkill(proseSkill);
+  const critical = output.findings.filter((f) => f.severity === 'CRITICAL');
+  assert.deepEqual(critical, [], 'prose instructions must not be treated as missing instructions');
+});
+
+test('a skill with no content at all is still CRITICAL', () => {
+  const emptySkill = {
+    skill_path: './empty-skill',
+    complexity_class: 'simple',
+    structure: {
+      has_skill_md: true,
+      resources: [],
+      purpose: null,
+      instruction_count: 0,
+      prose_paragraphs: 0,
+      step_count: 0,
+      steps: [],
+      inputs: [],
+      outputs: [],
+      dependencies: [],
+      tool_dependencies: [],
+      referenced_files: [],
+      unreferenced_scripts: [],
+      decision_points: [],
+      feedback_loops: [],
+      retry_mechanisms: [],
+      failure_handling: [],
+    },
+    complexity_signals: ['No ordered steps detected.'],
+  };
+
+  const output = evaluateSkill(emptySkill);
+  assert.ok(
+    output.findings.some((f) => f.severity === 'CRITICAL' && f.area === 'Instructions'),
+    'a genuinely empty skill must still be reported'
+  );
+});
