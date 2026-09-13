@@ -48,10 +48,22 @@ function scoreMetric(metricKey, findings, testResults) {
   const def = metricDefinition(metricKey);
   const relevantFindings = findings.filter((f) => f.metric === metricKey);
 
-  const penalty = relevantFindings.reduce(
-    (sum, f) => sum + (SEVERITY_PENALTY[f.severity] || 0),
-    0
-  );
+  // Findings sharing the same `area` are repeat instances of one rule, not
+  // independent defects (e.g. nine "passage too long" hits are one habit
+  // that shows up nine times, not nine separate problems). Measured against
+  // the 40-skill corpus, that let one systemic-but-minor habit — a skill
+  // with 9 MEDIUM "too long" findings — outweigh a skill with a single
+  // CRITICAL finding on the same metric. Each repeat within an area now
+  // counts at half the weight of the one before it, so a group's total
+  // penalty converges instead of piling up unboundedly; the first instance
+  // of every area still costs full weight.
+  const occurrencesPerArea = new Map();
+  const penalty = relevantFindings.reduce((sum, f) => {
+    const occurrence = occurrencesPerArea.get(f.area) || 0;
+    occurrencesPerArea.set(f.area, occurrence + 1);
+    const weight = 1 / 2 ** occurrence;
+    return sum + (SEVERITY_PENALTY[f.severity] || 0) * weight;
+  }, 0);
   const findingsScore = clamp(100 - penalty, 0, 100);
 
   const relevantTests = testResults.filter((t) =>

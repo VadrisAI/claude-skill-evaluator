@@ -156,6 +156,49 @@ test('findings are sorted CRITICAL first', () => {
   assert.equal(result.findings[0].severity, 'CRITICAL');
 });
 
+test('repeat findings from the same area compound less than distinct ones', () => {
+  const makeFinding = (area, severity) => ({
+    area,
+    location: 'l',
+    problem: 'p',
+    cause: 'c',
+    impact: 'i',
+    improvement_direction: 'd',
+    watch_for: 'w',
+    context: 'ctx',
+    severity,
+    metric: 'efficiency',
+  });
+
+  // Nine MEDIUM findings that are all the same rule (one habit, nine
+  // instances) must not tank the score as hard as nine independent ones.
+  const sameArea = scoreEvaluation({
+    skill_path: 'x',
+    complexity_class: 'simple',
+    applicable_metrics: ['efficiency'],
+    findings: Array.from({ length: 9 }, () => makeFinding('Kontext-/Token-Effizienz', 'MEDIUM')),
+    test_results: [],
+  });
+  const distinctAreas = scoreEvaluation({
+    skill_path: 'x',
+    complexity_class: 'simple',
+    applicable_metrics: ['efficiency'],
+    findings: Array.from({ length: 9 }, (_, i) => makeFinding(`area-${i}`, 'MEDIUM')),
+    test_results: [],
+  });
+  assert.ok(sameArea.scores.efficiency > distinctAreas.scores.efficiency);
+
+  // A single finding is unaffected by decay.
+  const single = scoreEvaluation({
+    skill_path: 'x',
+    complexity_class: 'simple',
+    applicable_metrics: ['efficiency'],
+    findings: [makeFinding('Kontext-/Token-Effizienz', 'MEDIUM')],
+    test_results: [],
+  });
+  assert.equal(single.scores.efficiency, 93);
+});
+
 test('an unknown metric name still scores from findings alone', () => {
   const result = scoreEvaluation({
     skill_path: 'x',

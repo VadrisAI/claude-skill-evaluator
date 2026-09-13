@@ -3,6 +3,15 @@
 const VAGUE_LANGUAGE_PATTERN =
   /\b(vielleicht|möglicherweise|eventuell|ggf\.?|unter umständen|kind of|sort of|maybe|perhaps|if possible|should probably|try to|versuche(?:n)? es)\b/i;
 
+// "Don't try to X" / "Nie versuche es" is a clear negative instruction, not
+// a hedge — even though it contains a phrase ("try to") that reads as vague
+// on its own. Measured against the 40-skill corpus: both real "try to"
+// matches (doc-coauthoring, setup-writing-style) were negated this way and
+// are false positives. A match is skipped when a negator sits within two
+// words before it.
+const NEGATION_LOOKBACK_PATTERN =
+  /\b(don't|do not|never|nicht|nie|niemals|kein|keine|keinen)\b\s+(\S+\s+){0,2}$/i;
+
 // Verbs an instruction can open with. Measured against a 40-skill corpus:
 // the original list was missing extremely common ones — "ask" alone opened
 // 21 steps that were consequently reported as "not phrased as an action",
@@ -48,7 +57,13 @@ function jaccardSimilarity(a, b) {
 }
 
 function containsVagueLanguage(text) {
-  return VAGUE_LANGUAGE_PATTERN.test(text);
+  const re = new RegExp(VAGUE_LANGUAGE_PATTERN.source, 'gi');
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const preceding = text.slice(0, match.index);
+    if (!NEGATION_LOOKBACK_PATTERN.test(preceding)) return true;
+  }
+  return false;
 }
 
 function looksImperative(text) {
@@ -73,4 +88,5 @@ module.exports = {
   VAGUE_LANGUAGE_PATTERN,
   IMPERATIVE_START_PATTERN,
   CONDITIONAL_LEAD_RE,
+  NEGATION_LOOKBACK_PATTERN,
 };
