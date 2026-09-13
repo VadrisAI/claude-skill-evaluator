@@ -100,6 +100,7 @@ function buildState(rootPaths) {
   for (const evalDir of findEvaluationDirs(roots)) {
     const summary = collectSkillSummary(evalDir);
     if (!summary) continue;
+    summary.severityCounts = severityCounts(evalDir);
     const skillPath = path.resolve(summary.skillPath || path.dirname(evalDir));
     const existing = byPath.get(skillPath);
     if (existing) {
@@ -120,4 +121,38 @@ function buildState(rootPaths) {
   return { roots, skills, generatedAt: new Date().toISOString() };
 }
 
-module.exports = { findSkillDirs, buildState, skillId };
+/**
+ * Findings per severity for one evaluation, deduplicated.
+ *
+ * scores.json records findings nested under each metric's
+ * contributing_findings, and a finding that costs two metrics points appears
+ * under both — so counting the per-metric severity_breakdown fields would
+ * double-count it. Deduplicating on the finding's own identity gives the
+ * number a reader expects: how many distinct problems were found.
+ */
+function severityCounts(evalDir) {
+  const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  let scores;
+  try {
+    scores = JSON.parse(fs.readFileSync(path.join(evalDir, 'scores.json'), 'utf8'));
+  } catch {
+    return counts;
+  }
+
+  const details = scores.score_details;
+  if (!details) return counts;
+  const metrics = Array.isArray(details) ? details : Object.values(details);
+
+  const seen = new Set();
+  for (const metric of metrics) {
+    for (const finding of metric.contributing_findings || []) {
+      const key = JSON.stringify([finding.area, finding.location, finding.problem, finding.severity]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (counts[finding.severity] != null) counts[finding.severity] += 1;
+    }
+  }
+  return counts;
+}
+
+module.exports = { findSkillDirs, buildState, skillId, severityCounts };

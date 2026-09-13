@@ -6,6 +6,7 @@ const path = require('path');
 
 const { buildState } = require('./inventory');
 const { EvaluationRunner } = require('./runner');
+const { readLatestHistory } = require('../report/compare');
 
 const ASSETS = path.join(__dirname, 'assets');
 
@@ -83,15 +84,43 @@ function handleReport(res, roots, id) {
   const scores = readJson(path.join(evalDir, 'scores.json')) || {};
   const testResults = readJson(path.join(evalDir, 'test-results.json')) || {};
 
+  // scores.json carries findings only in their trimmed form, nested inside
+  // each metric's contributing_findings. The history entry for the same run
+  // keeps the full diagnostic chain — problem, cause, impact,
+  // improvement_direction, watch_for — which is the thing this tool exists
+  // to produce, so the UI reads findings from there and falls back to the
+  // trimmed copies only if the history entry is missing.
+  const latest = readLatestHistory(evalDir, scores.skill_path);
+  const findings = latest && Array.isArray(latest.findings) && latest.findings.length
+    ? latest.findings
+    : flattenFindings(scores.score_details);
+
   sendJson(res, 200, {
     id: entry.id,
     skillPath: entry.skillPath,
     skillName: entry.skillName,
     summary: entry.summary,
-    findings: scores.findings || [],
-    tests: testResults.tests || [],
+    findings,
+    tests: testResults.test_results || [],
     scoreDetails: scores.score_details || null,
   });
+}
+
+/** Deduplicated findings from every metric's contributing_findings. */
+function flattenFindings(scoreDetails) {
+  if (!scoreDetails) return [];
+  const entries = Array.isArray(scoreDetails) ? scoreDetails : Object.values(scoreDetails);
+  const seen = new Set();
+  const out = [];
+  for (const detail of entries) {
+    for (const finding of detail.contributing_findings || []) {
+      const key = JSON.stringify([finding.area, finding.location, finding.problem, finding.severity]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(finding);
+    }
+  }
+  return out;
 }
 
 function handleEvaluate(req, res, roots, outputDir, runner) {

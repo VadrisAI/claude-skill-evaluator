@@ -46,7 +46,11 @@ function main() {
   console.log(`Evaluated: ${analysis.skill_path}`);
   console.log(`Complexity class: ${analysis.complexity_class}`);
   console.log(`Overall score: ${report.scoringResult.scores.overall}/100`);
-  console.log(`Report written to: ${path.relative(process.cwd(), reportPath)}`);
+  // A relative path is friendlier while it stays inside the working
+  // directory; once it climbs out it turns into ../../../ noise that is
+  // harder to read than the absolute path — which the UI console shows too.
+  const relative = path.relative(process.cwd(), reportPath);
+  console.log(`Report written to: ${relative.startsWith('..') ? reportPath : relative}`);
 }
 
 main();

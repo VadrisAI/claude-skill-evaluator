@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skill Evaluator</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%232a78d6'/%3E%3Cpath d='M9 17l5 5 9-11' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<a class="skip" href="#main">Zum Inhalt springen</a>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <div>
+      <h1>Skill Evaluator</h1>
+      <p class="roots" id="roots">wird geladen …</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span class="conn" id="conn" data-state="connecting">
+      <span class="conn-dot" aria-hidden="true"></span>
+      <span id="conn-label">verbinde …</span>
+    </span>
+    <button class="btn ghost" id="theme-toggle" type="button" aria-label="Farbschema wechseln">
+      <span aria-hidden="true">◐</span>
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" aria-label="Skills">
+    <div class="filter">
+      <input type="search" id="search" placeholder="Skill suchen …" aria-label="Skill suchen" autocomplete="off">
+      <div class="chips" role="group" aria-label="Filter">
+        <button class="chip is-active" data-filter="all" type="button">Alle</button>
+        <button class="chip" data-filter="evaluated" type="button">Bewertet</button>
+        <button class="chip" data-filter="pending" type="button">Offen</button>
+      </div>
+    </div>
+    <ul class="skill-list" id="skill-list"></ul>
+    <p class="sidebar-empty" id="sidebar-empty" hidden>Kein Skill gefunden.</p>
+  </aside>
+
+  <main id="main" class="main">
+    <div id="view"></div>
+  </main>
+</div>
+
+<section class="console" id="console" data-open="false" aria-label="Ausgabe">
+  <button class="console-head" id="console-toggle" type="button" aria-expanded="false" aria-controls="console-body">
+    <span class="console-title">Ausgabe</span>
+    <span class="console-status" id="console-status">bereit</span>
+    <span class="console-caret" aria-hidden="true">⌃</span>
+  </button>
+  <pre class="console-body" id="console-body" tabindex="0" role="log" aria-live="polite"></pre>
+</section>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>
