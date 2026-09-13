@@ -7,7 +7,14 @@ const { splitLines, computeFenceMask, extractHeadings, extractListItems } = requ
 
 const STEP_SECTION_RE = /\b(steps?|workflow|process|procedure|instructions)\b/i;
 const DECISION_RE = /\b(if|when|unless|otherwise|else|depending on|in case)\b/i;
-const FEEDBACK_RE = /\b(loop back|repeat until|go back to step|return to step|iterate|loop until)\b/i;
+// "iterate" on its own is not a feedback loop — it is the ordinary verb for
+// walking a collection. Across the real-skill corpus every one of its four
+// matches was a false positive ("count, iterate or use pandas", "iterate
+// page annotations", "requires PyMuPDF to iterate page…"), and two of them
+// became HIGH "loop without an exit condition" findings. Only phrasings that
+// actually describe going back round are kept.
+const FEEDBACK_RE =
+  /\b(loop back|loop until|repeat until|go back to step|return to step|iterate until|iterating until|keep iterating|repeat from step)\b/i;
 const RETRY_RE = /\b(retry|retries|try again|re-attempt|reattempt|up to \d+ times?)\b/i;
 const FAILURE_RE = /\b(fail(?:s|ed|ure)?|error|fallback|abort|roll ?back)\b/i;
 const KNOWN_TOOL_NAMES = /^(git|npm|npx|pip3?|python3?|node|bash|sh|curl|wget|docker|jq|grep|sed|awk|make|cargo|go|ruby|perl)$/i;
@@ -258,12 +265,24 @@ function extractStepHeadings(headings, body = '') {
     const searchText = `${title}\n${sectionText}`;
 
     const refs = [];
+    const refContext = new Map();
     for (const x of searchText.matchAll(/\b(?:step|phase|stage|schritt)\s+#?(\d+)\b/gi)) {
       const label = Number(x[1]);
       if (label === m.number) continue; // a step referring to itself
+      // Keep the surrounding wording: "see Step 4" and "move to step 4" are
+      // a cross-reference and a jump, while "the amount from step 1" is a
+      // real data dependency. Without the phrasing, a consumer cannot tell
+      // them apart and treats every mention as a dependency.
+      const start = Math.max(0, x.index - 70);
+      const snippet = normalizeWhitespace(searchText.slice(start, x.index + x[0].length + 50));
       if (labelToId.has(label)) {
         const target = labelToId.get(label);
-        if (target !== id) refs.push(target);
+        if (target !== id) {
+          refs.push(target);
+          // Keyed by the resolved step id, so consumers can look it up with
+          // the same number they see in `dependencies`.
+          if (!refContext.has(target)) refContext.set(target, snippet);
+        }
       } else if (labelsAreSequential) {
         // Labels are a plain 1..N sequence, so an out-of-range number is a
         // genuine reference to a step that does not exist — worth passing
@@ -271,6 +290,7 @@ function extractStepHeadings(headings, body = '') {
         // from an unrecognised numbering scheme, so it is dropped rather
         // than invented.
         refs.push(label);
+        if (!refContext.has(label)) refContext.set(label, snippet);
       }
     }
 
@@ -287,6 +307,7 @@ function extractStepHeadings(headings, body = '') {
       detail: normalizeWhitespace(sectionText).slice(0, MAX_STEP_DETAIL_CHARS),
       line: m.heading.line,
       referencesSteps: [...new Set(refs)],
+      refContext,
       tools: [...new Set(tools)],
     };
   });
@@ -323,7 +344,16 @@ function extractDependencies(steps) {
   const deps = [];
   for (const step of steps) {
     for (const ref of step.referencesSteps) {
-      deps.push({ from_step: ref, to_step: step.id, detail: `Step ${step.id} references step ${ref}` });
+      deps.push({
+        from_step: ref,
+        to_step: step.id,
+        detail: `Step ${step.id} references step ${ref}`,
+        // The wording around the mention. A consumer needs this to tell a
+        // cross-reference ("see Step 4") or a deliberate jump ("move to
+        // step 4") from an actual data dependency ("the amount from step
+        // 1") — they are indistinguishable from the numbers alone.
+        context: (step.refContext && step.refContext.get(ref)) || '',
+      });
     }
   }
   return deps;

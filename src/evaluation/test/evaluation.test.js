@@ -307,3 +307,62 @@ test('a short heading step is not reported as too short when it has detail', () 
     fs2.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a forward cross-reference is not reported, a forward data dependency is', () => {
+  // All 14 forward references in the 40-skill corpus were cross-references,
+  // explanatory look-aheads or deliberate jumps — none of them defects.
+  const base = {
+    skill_path: './fwd',
+    complexity_class: 'multi_step_process',
+    structure: {
+      has_skill_md: true,
+      resources: [],
+      purpose: 'Runs a four-stage flow.',
+      instruction_count: 4,
+      prose_paragraphs: 4,
+      step_count: 4,
+      steps: [1, 2, 3, 4].map((id) => ({
+        id,
+        description: `Stage ${id}`,
+        detail: 'Does the thing.',
+        location: `SKILL.md:${id * 10}`,
+        tools: [],
+        references_steps: [],
+      })),
+      inputs: ['a'],
+      outputs: ['b'],
+      dependencies: [],
+      tool_dependencies: [],
+      referenced_files: [],
+      unreferenced_scripts: [],
+      decision_points: [],
+      feedback_loops: [],
+      retry_mechanisms: [],
+      failure_handling: [{ location: 'SKILL.md:50', detail: 'On error, stop and report.' }],
+    },
+    complexity_signals: ['Detected 4 ordered steps.'],
+  };
+
+  const forwardRef = (context) => {
+    const input = JSON.parse(JSON.stringify(base));
+    input.structure.dependencies = [{ from_step: 4, to_step: 1, detail: 'Step 1 references step 4', context }];
+    return evaluateSkill(input).findings.filter((f) => /Prozessübergänge/.test(f.area));
+  };
+
+  for (const benign of [
+    'the user tailors the result after the profile is saved (Step 4), not before',
+    'If I gave you a single charge or name, move to step 4.',
+    'when confident, otherwise prompt for clarification (see Step 4)',
+  ]) {
+    assert.deepEqual(forwardRef(benign), [], `must not flag a cross-reference: ${benign}`);
+  }
+
+  assert.equal(
+    forwardRef('Validate the rows using the output from step 4 before continuing.').length,
+    1,
+    'a forward reference that consumes a later step\'s output is a real ordering defect'
+  );
+
+  // No context at all: stay silent rather than guess.
+  assert.deepEqual(forwardRef(''), []);
+});
