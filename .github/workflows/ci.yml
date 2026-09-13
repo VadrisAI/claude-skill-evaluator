@@ -79,3 +79,61 @@ jobs:
             exit 1
           fi
           echo "Fixtures untouched (no edits, no new files), as required."
+
+      # The UI adds a second way to reach the same pipeline, so the smoke
+      # test covers it end to end too: start the server, drive the real HTTP
+      # API the browser uses, and confirm a run triggered through it produces
+      # a report without touching the skill.
+      - name: Start the UI server and evaluate through its API
+        run: |
+          set -e
+          mkdir -p /tmp/ui-workspace /tmp/ui-out
+          cp -r fixtures/simple-skill /tmp/ui-workspace/
+
+          node bin/ui.js /tmp/ui-workspace --port 4173 --out /tmp/ui-out &
+          UI_PID=$!
+          trap 'kill $UI_PID 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 40); do
+            kill -0 $UI_PID 2>/dev/null || { echo "the UI server exited during startup"; exit 1; }
+            curl -fsS http://127.0.0.1:4173/api/state >/dev/null 2>&1 && break
+            sleep 0.25
+          done
+
+          curl -fsS http://127.0.0.1:4173/ | grep -q 'Skill Evaluator'
+          id="$(curl -fsS http://127.0.0.1:4173/api/state | node -e "
+            let d=''; process.stdin.on('data', c => d += c).on('end', () => {
+              const s = JSON.parse(d).skills.find(s => s.skillName === 'simple-skill');
+              if (!s) { console.error('simple-skill not discovered by the UI'); process.exit(1); }
+              process.stdout.write(s.id);
+            });")"
+
+          curl -fsS -X POST http://127.0.0.1:4173/api/evaluate \
+            -H 'Content-Type: application/json' -d "{\"id\":\"$id\"}" >/dev/null
+
+          for i in $(seq 1 60); do
+            test -s /tmp/ui-out/skill-evaluation/scores.json && break
+            sleep 0.5
+          done
+          test -s /tmp/ui-out/skill-evaluation/scores.json \
+            || { echo "the run triggered through the UI produced no report"; exit 1; }
+
+          # A request naming a filesystem path instead of a discovered id must
+          # not reach the runner. 404 is the documented answer.
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4173/api/evaluate \
+            -H 'Content-Type: application/json' -d '{"skillPath":"/etc"}')"
+          test "$code" = "404" || { echo "path-in-body was not rejected (HTTP $code)"; exit 1; }
+
+          echo "UI API smoke test passed."
+
+      - name: Verify the UI did not modify the skill it evaluated
+        run: |
+          set -e
+          diff -r fixtures/simple-skill /tmp/ui-workspace/simple-skill \
+            || { echo "the UI modified the skill it evaluated"; exit 1; }
+          changes="$(git status --porcelain --untracked-files=all -- fixtures/)"
+          if [ -n "$changes" ]; then
+            echo "The UI wrote into the repository's fixtures."
+            echo "$changes"
+            exit 1
+          fi

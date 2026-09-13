@@ -39,10 +39,15 @@ Evaluator arbeitet direkt innerhalb/im Kontext der Entwicklungsumgebung."*
 So instead, each skill's card on the dashboard shows the exact
 `node bin/evaluate-skill.js <skill-path>` command to re-run in a terminal,
 and regenerating `dashboard.html` afterwards (`node bin/dashboard.js ...`)
-picks up the new run automatically. If a genuinely interactive, run-it-here
-dashboard is wanted later, that's a deliberate architecture decision (a
-local server component) — flag it in `docs/architecture.md` rather than
-smuggling it in here.
+picks up the new run automatically.
+
+**Update (2026-09-13):** the interactive case now exists as its own piece —
+`src/ui/`, started with `node bin/ui.js` or `/skill-ui`. It is a local server
+with a real backend, decided and specified in `docs/architecture.md` §
+"Local UI Server" rather than grown into this file. Nothing here changed:
+this dashboard stays a static, read-only, self-contained HTML export with no
+dependency on that server, and remains the right answer when you want one
+file you can archive or send to someone.
 
 Two more things it does not do, for the same "no extra infrastructure"
 reason: it doesn't show Anthropic account usage/rate-limit data (no tool in

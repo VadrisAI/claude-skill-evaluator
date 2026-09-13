@@ -27,7 +27,7 @@ MVP complete: all four modules are implemented and wired together (see [`docs/ar
 
 The pipeline wiring, CLI, and slash commands run the real modules end to end — see `npm test` (46 tests across all four modules plus the pipeline integration test) and `node bin/evaluate-skill.js <skill-path>` for a live run.
 
-A fifth, additive piece was added afterwards, once all four modules had merged: a read-only **Report Dashboard** (`src/dashboard/`, `bin/dashboard.js`, `/skill-dashboard`) summarizing every evaluated skill's scores and test results in one page — see [Dashboard](#dashboard-overview-across-evaluated-skills) below.
+Two additive pieces were added afterwards, once all four modules had merged: a read-only **Report Dashboard** (`src/dashboard/`, `bin/dashboard.js`, `/skill-dashboard`) summarizing every evaluated skill in one static page, and a **local UI server** (`src/ui/`, `bin/ui.js`, `/skill-ui`) that serves the same data as a browser interface and can start an evaluation from it — see [Dashboard](#dashboard-overview-across-evaluated-skills) and [Interface](#interface-run-evaluations-from-the-browser) below.
 
 See [`docs/spec.md`](docs/spec.md) for the full product specification and [`docs/architecture.md`](docs/architecture.md) for the pipeline and module boundaries.
 
@@ -111,6 +111,25 @@ node bin/dashboard.js ./ --out dashboard.html
 
 This scans for every `skill-evaluation/` folder under the given path(s) and renders a static, read-only `dashboard.html`: overall score per skill, test pass rate, findings count, and the score trend across versions, with links to each skill's own `REPORT.md`/`report.html`. It's a viewer, not a runner — see [`src/dashboard/README.md`](src/dashboard/README.md) for why it deliberately doesn't (and, as a static file, can't) trigger a new evaluation itself.
 
+### Interface (run evaluations from the browser)
+
+The dashboard is a snapshot; the interface is a workbench. It lists every skill under a path — evaluated or not — and starts an evaluation when you click, with the output streaming live:
+
+```
+/skill-ui ./
+```
+
+or standalone:
+
+```bash
+npm run ui                            # http://127.0.0.1:4173/
+node bin/ui.js ~/skills --port 8080   # a different path and port
+```
+
+Per skill it shows the overall score and its change against the previous version, the test pass rate, all twelve metric scores, the score trend across versions, and every finding with the full diagnostic chain — problem, cause, impact, improvement direction, and what to watch for — which is the part the static dashboard only ever showed as a number.
+
+The server binds `127.0.0.1` and nothing else, starts runs through `fork` with an argv array rather than a shell, and never accepts a filesystem path from the browser: the page sends back an id the server itself discovered, so a request naming a path is a 404 and starts nothing. Its one mutating action is running an evaluation, which writes only into `skill-evaluation/` — there is no edit button, by design. See [`src/ui/README.md`](src/ui/README.md) and `docs/architecture.md` § "Local UI Server".
+
 ## Development
 
 ```bash
@@ -121,7 +140,7 @@ There are no dependencies to install — the project is deliberately zero-dep an
 
 `npm test` discovers test files rather than matching a fixed pattern, and prints the list it found on every run. (It used to be a glob that quietly matched only the pipeline tests, so most of the suite never ran under the project's own test command.)
 
-CI runs the same suite on Node 18, 20, and 22, plus an end-to-end smoke test that evaluates the bundled fixtures, builds a dashboard from the results, and asserts the evaluated skills were left untouched — the project's core non-goal, enforced automatically rather than by trust.
+CI runs the same suite on Node 18, 20, and 22, plus an end-to-end smoke test that evaluates the bundled fixtures, builds a dashboard from the results, starts the UI server and drives a full evaluation through its HTTP API, and asserts — after both paths — that the evaluated skills were left untouched. That is the project's core non-goal, enforced automatically rather than by trust. The same smoke test checks that a request naming a filesystem path instead of a discovered id is refused.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how the four modules fit together and how to contribute to one of them.
 

@@ -7,12 +7,14 @@
   "main": "src/pipeline/index.js",
   "bin": {
     "evaluate-skill": "bin/evaluate-skill.js",
-    "skill-evaluator-dashboard": "bin/dashboard.js"
+    "skill-evaluator-dashboard": "bin/dashboard.js",
+    "skill-evaluator-ui": "bin/ui.js"
   },
   "scripts": {
     "evaluate": "node bin/evaluate-skill.js",
     "dashboard": "node bin/dashboard.js",
-    "test": "node scripts/run-tests.js"
+    "test": "node scripts/run-tests.js",
+    "ui": "node bin/ui.js"
   },
   "engines": {
     "node": ">=18"
