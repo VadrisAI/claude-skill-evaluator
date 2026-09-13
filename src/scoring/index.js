@@ -17,8 +17,10 @@ const { SEVERITY_PENALTY, SEVERITY_ORDER, metricDefinition } = require('./metric
  *         Testergebnisse und erkannte Probleme dokumentiert werden."
  *
  * Hard rule enforced here: only metrics listed in `applicable_metrics` are
- * ever scored. A skill classified `simple` never receives a process_logic /
- * dependency_clarity / workflow_robustness score, because module 2 is not
+ * ever scored. A skill classified `simple` never receives the six
+ * process-only scores (process_transitions, dependency_management,
+ * decision_logic, feedback_loop_integrity, exit_conditions,
+ * dead_end_detection), because module 2 is not
  * expected to list those as applicable for a simple skill (spec.md: "Das
  * System darf keine Scores anzeigen, die für den jeweiligen Skill nicht
  * relevant sind").

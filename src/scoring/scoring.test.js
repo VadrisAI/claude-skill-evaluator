@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 const { scoreEvaluation } = require('./index');
+const { KNOWN_METRICS } = require('./metrics');
+const { BASE_METRICS, PROCESS_METRICS } = require('../evaluation/criteria');
 
 const fixturesDir = path.join(__dirname, '..', '..', 'fixtures');
 function loadFixture(name) {
@@ -154,6 +156,26 @@ test('findings are sorted CRITICAL first', () => {
   const input = loadFixture('evaluation-output.multi-step.v1.json');
   const result = scoreEvaluation(input);
   assert.equal(result.findings[0].severity, 'CRITICAL');
+});
+
+test('every metric module 2 can actually produce is a known metric with test categories', () => {
+  // Guards against metrics.js's registry drifting from the real metric
+  // names in src/evaluation/criteria.js (they were developed in parallel
+  // against a since-abandoned speculative contract and silently diverged:
+  // KNOWN_METRICS listed task_definition/efficiency/process_logic/
+  // dependency_clarity/workflow_robustness, none of which module 2 ever
+  // produces, while the 14 real metric names it does produce — precision,
+  // context_efficiency, dead_end_detection, etc. — fell through to the
+  // generic fallback with an empty testCategories, silently disabling the
+  // findings/test-pass-rate blend scoreMetric documents for every one of
+  // them).
+  for (const metric of [...BASE_METRICS, ...PROCESS_METRICS]) {
+    assert.ok(metric in KNOWN_METRICS, `${metric} is missing from KNOWN_METRICS`);
+    assert.ok(
+      KNOWN_METRICS[metric].testCategories.length > 0,
+      `${metric} has no testCategories mapping, so test pass rate never blends into its score`
+    );
+  }
 });
 
 test('repeat findings from the same area compound less than distinct ones', () => {
