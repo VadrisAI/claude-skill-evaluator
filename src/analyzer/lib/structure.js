@@ -34,6 +34,7 @@ function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontm
     resources,
     purpose: extractPurpose(frontmatter, body),
     instruction_count: listItems.length,
+    prose_paragraphs: countProseParagraphs(body),
     step_count: steps.length,
     steps: steps.map((s) => ({
       id: s.id,
@@ -59,7 +60,13 @@ function buildStructure({ frontmatter, body, resources, tree, hasSkillMd, frontm
 }
 
 function extractPurpose(frontmatter, body) {
-  if (frontmatter.description) return frontmatter.description;
+  // The contract promises a string. Frontmatter is user-authored YAML, so a
+  // description can arrive as something else (a list, a number); coerce
+  // rather than passing an array downstream where a string is expected.
+  const described = frontmatter.description;
+  if (typeof described === 'string' && described.trim()) return described.trim();
+  if (Array.isArray(described) && described.length > 0) return described.join(' ');
+  if (described != null && typeof described !== 'object') return String(described);
 
   for (const line of splitLines(body)) {
     const trimmed = line.trim();
@@ -67,6 +74,43 @@ function extractPurpose(frontmatter, body) {
     return trimmed;
   }
   return null;
+}
+
+/**
+ * Counts substantive prose paragraphs in the body — text that is neither a
+ * heading, a list item, nor inside a code fence.
+ *
+ * Exists so consumers can tell an *empty* skill from one written in prose.
+ * Plenty of real skills (Anthropic's own `learn`, `pages`,
+ * `built-in-browser`) carry their instructions as flowing text with few or
+ * no bullets; judging those by `instruction_count` alone reported them as
+ * having "no instructions at all", at CRITICAL severity.
+ */
+function countProseParagraphs(body) {
+  const lines = splitLines(body);
+  const fenced = computeFenceMask(lines);
+  let count = 0;
+  let inParagraph = false;
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+    const isProse =
+      !fenced[idx] &&
+      trimmed !== '' &&
+      !/^#{1,6}\s/.test(trimmed) &&
+      !/^\s*([-*+]|\d+[.)])\s/.test(line) &&
+      !/^\|/.test(trimmed) && // table row
+      !/^(-{3,}|={3,})$/.test(trimmed); // horizontal rule / setext underline
+
+    if (isProse && !inParagraph) {
+      count += 1;
+      inParagraph = true;
+    } else if (!isProse) {
+      inParagraph = false;
+    }
+  });
+
+  return count;
 }
 
 function extractSection(body, headings, namePattern) {

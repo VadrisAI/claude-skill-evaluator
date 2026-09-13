@@ -21,7 +21,42 @@ function parseFrontmatter(raw) {
   const lines = rawFrontmatter.split(/\r?\n/);
   let currentKey = null;
 
+  // YAML block scalars ("description: |" / "description: >") hold indented
+  // text, not structure. Without this, a multi-line description whose text
+  // happens to contain "- " bullets was parsed as a *list*, so a real skill
+  // ended up with an array where the contract promises a purpose string.
+  let blockKey = null;
+  let blockFold = false;
+  let blockLines = [];
+  let blockIndent = null;
+
+  const finishBlock = () => {
+    if (!blockKey) return;
+    const text = blockFold
+      ? blockLines.join(' ').replace(/\s+/g, ' ').trim()
+      : blockLines.join('\n').trim();
+    frontmatter[blockKey] = text;
+    blockKey = null;
+    blockLines = [];
+    blockIndent = null;
+  };
+
   for (const line of lines) {
+    if (blockKey) {
+      const isBlank = line.trim() === '';
+      const indent = line.length - line.trimStart().length;
+      if (isBlank) {
+        blockLines.push('');
+        continue;
+      }
+      if (blockIndent === null) blockIndent = indent;
+      if (indent >= blockIndent) {
+        blockLines.push(line.slice(blockIndent));
+        continue;
+      }
+      finishBlock(); // dedented: the block ended, fall through to normal parsing
+    }
+
     if (/^\s*#/.test(line) || line.trim() === '') continue;
 
     const listItem = /^\s*-\s+(.*)$/.exec(line);
@@ -37,13 +72,21 @@ function parseFrontmatter(raw) {
     if (kv) {
       const [, key, value] = kv;
       currentKey = key;
-      if (value.trim() === '') {
+      const trimmed = value.trim();
+      const blockMarker = /^([|>])[-+]?\d*$/.exec(trimmed);
+      if (blockMarker) {
+        blockKey = key;
+        blockFold = blockMarker[1] === '>';
+        blockLines = [];
+        blockIndent = null;
+      } else if (trimmed === '') {
         frontmatter[key] = null; // may be filled by following list items
       } else {
-        frontmatter[key] = stripQuotes(value.trim());
+        frontmatter[key] = stripQuotes(trimmed);
       }
     }
   }
+  finishBlock();
 
   return { frontmatter, body, offset };
 }

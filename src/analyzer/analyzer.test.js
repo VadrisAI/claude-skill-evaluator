@@ -410,6 +410,61 @@ test('a script mentioning only its own filename does not count as referenced', (
   }
 });
 
+test('prose_paragraphs distinguishes a prose skill from an empty one', () => {
+  const prose = makeTempSkill(
+    [
+      '---', 'name: prose', 'description: Guidance written as flowing text.', '---', '',
+      '# Prose Skill', '',
+      'Start by locating where the reader actually is before explaining anything.', '',
+      'When they have shown their work, skip ahead and address the specific gap.',
+    ].join('\n')
+  );
+  const empty = makeTempSkill(
+    ['---', 'name: empty', 'description: Headings and code only.', '---', '', '# Empty', '', '## Section', '', '```', 'code', '```'].join('\n')
+  );
+  try {
+    const p = analyzeSkill(prose).structure;
+    assert.equal(p.instruction_count, 0, 'no bullets in this fixture');
+    assert.equal(p.prose_paragraphs, 2);
+
+    const e = analyzeSkill(empty).structure;
+    assert.equal(e.prose_paragraphs, 0, 'headings and fenced code are not prose');
+  } finally {
+    fs.rmSync(prose, { recursive: true, force: true });
+    fs.rmSync(empty, { recursive: true, force: true });
+  }
+});
+
+test('purpose is a string even when the description is a YAML block scalar', () => {
+  // Real skills use "description: |" with indented multi-line text; when
+  // that text contains "- " bullets, a naive parser turns it into a list
+  // and purpose comes back as an array, breaking the contract.
+  const dir = makeTempSkill(
+    [
+      '---',
+      'name: blockscalar',
+      'description: |',
+      '  Use this skill for understanding, not for tasks.',
+      '',
+      '  Trigger for:',
+      '  - explicit learning requests',
+      '  - confusion signals',
+      '---',
+      '',
+      '# Block Scalar',
+      '',
+      'Do the thing.',
+    ].join('\n')
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    assert.equal(typeof structure.purpose, 'string', `purpose must be a string, got ${typeof structure.purpose}`);
+    assert.match(structure.purpose, /Use this skill for understanding/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('throws a clear error for a non-existent path', () => {
   assert.throws(() => analyzeSkill(path.join(FIXTURES, 'does-not-exist')), /does not exist/);
 });
