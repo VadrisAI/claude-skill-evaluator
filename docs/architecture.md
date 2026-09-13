@@ -229,3 +229,98 @@ If a genuinely interactive dashboard (one that can kick off runs itself) is
 wanted later, that needs a real backend/server component — a deliberate
 architecture decision to make explicitly here, not something to grow
 accidentally out of this read-only viewer.
+
+## Local UI Server (added 2026-09-13)
+
+The decision the "Report Dashboard" section above deliberately deferred, now
+taken explicitly: **an opt-in, locally-bound HTTP server that gives the
+browser UI a backend, so an evaluation can be started from the interface
+instead of only from a terminal.**
+
+Directory: `src/ui/` (+ `bin/ui.js`, `commands/skill-ui.md`).
+
+### Why this does not contradict spec.md
+
+spec.md says: *"Keine eigenständige große Web-Plattform nötig — der
+Evaluator arbeitet direkt innerhalb/im Kontext der Entwicklungsumgebung, in
+der die Skills bereits vorhanden sind."*
+
+That sentence rules out a hosted product, not a local process. This server:
+
+- binds to `127.0.0.1` only, never `0.0.0.0`, and refuses to start otherwise;
+- is started by the user on demand (`npm run ui`, `/skill-ui`) and dies with
+  the terminal that started it — nothing is installed, registered or hosted;
+- runs in the same working directory as the skills it evaluates, i.e. exactly
+  "im Kontext der Entwicklungsumgebung";
+- stores nothing beyond what `bin/evaluate-skill.js` already writes.
+
+It is a view onto the same pipeline, not a second product. The read-only
+`bin/dashboard.js` stays exactly as it is: it remains the answer for "give me
+one HTML file I can mail to someone", and it has no dependency on this server.
+
+### Non-goals, unchanged
+
+The tool still never creates, modifies, repairs or optimizes a skill. The UI
+exposes exactly one mutating action — *run an evaluation* — which writes only
+into `<outputDir>/skill-evaluation/`, the same location and format
+`bin/evaluate-skill.js` already produces. There is no edit button, and adding
+one would break the project's central non-goal.
+
+### HTTP contract
+
+All responses are JSON except the three static asset routes.
+
+```
+GET  /                      -> text/html   (app shell)
+GET  /app.css               -> text/css
+GET  /app.js                -> text/javascript
+
+GET  /api/state             -> {
+       roots: string[],                  // directories being served, absolute
+       skills: SkillEntry[],             // union of evaluated + evaluatable, by skillPath
+       generatedAt: string               // ISO 8601
+     }
+
+     SkillEntry = {
+       id: string,                       // stable, derived from skillPath
+       skillPath: string,
+       skillName: string,
+       evaluated: boolean,               // false = has SKILL.md but no report yet
+       summary: object | null            // collectSkillSummary() output, null if never evaluated
+     }
+
+GET  /api/report?id=<id>    -> {
+       id, skillPath, summary, findings: object[], history: object[]
+     }
+     404 if the id is unknown, 409 if it has no evaluation yet.
+
+POST /api/evaluate          <- { id: string }
+                            -> { runId: string }            (202 Accepted)
+     Starts one evaluation. Rejected with 409 while another run is active —
+     the pipeline writes to disk, so runs are serialized deliberately.
+
+GET  /api/events            -> text/event-stream
+     Server-sent events, one JSON object per `data:` line:
+       { type: 'run-started',  runId, skillPath }
+       { type: 'run-output',   runId, stream: 'stdout'|'stderr', text }
+       { type: 'run-finished', runId, ok: boolean, exitCode, summary }
+       { type: 'state-changed' }          // client should re-fetch /api/state
+```
+
+### Security boundaries
+
+These are load-bearing, not defensive decoration — the server executes work on
+behalf of whatever can reach it:
+
+- **Bind address** is `127.0.0.1`, not configurable to anything routable.
+- **No path is accepted from the client.** `POST /api/evaluate` takes an `id`
+  that must match an entry the server itself discovered under its configured
+  roots. A caller cannot name an arbitrary filesystem path, so there is no
+  traversal surface.
+- **No shell.** Runs are `child_process.fork`ed on `bin/evaluate-skill.js`
+  with an argv array — never `exec`, never string interpolation.
+- **Origin/Host check** on every mutating request: requests whose `Host` is
+  not a loopback literal are rejected, which blocks DNS-rebinding from a page
+  the user happens to have open.
+- **One run at a time**, so a browser reload cannot fan out into N concurrent
+  pipelines writing the same directory.
