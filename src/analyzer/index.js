@@ -24,6 +24,7 @@ function analyzeSkill(skillPath) {
     tree: discovery.tree,
     hasSkillMd: discovery.hasSkillMd,
     frontmatterOffset: offset,
+    skillDir: discovery.skillDir,
   });
 
   const { complexity_class, complexity_signals } = classifyComplexity(structure);

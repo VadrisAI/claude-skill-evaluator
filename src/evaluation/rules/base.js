@@ -365,21 +365,38 @@ const baseRules = [
       if (scriptTools.length === 0) {
         return { passed: true, detail: 'Keine Script-Dateien unter tool_dependencies gefunden.', findings: [] };
       }
-      const referencedInSteps = new Set();
-      for (const step of arr(structure.steps)) {
-        for (const tool of arr(step && step.tools)) referencedInSteps.add(tool);
-      }
-      const orphaned = scriptTools.filter((t) => !referencedInSteps.has(t));
+
+      // Use the analyzer's `unreferenced_scripts`, which accounts for
+      // scripts referenced from other bundled files (imports, module
+      // notation, invocations without the extension) — not just mentions
+      // in a recognised step.
+      //
+      // The previous approach checked only `step.tools`, which had two
+      // failure modes measured against a 40-skill corpus: a `simple` skill
+      // has no steps at all, so *every* script it ships was reported
+      // orphaned (one real skill produced 15 such findings), and helper
+      // modules imported by other scripts were never recognised as used.
+      // 55% of these findings were false. Fall back to the old behaviour
+      // only when the field is absent, i.e. against an older analyzer.
+      const orphaned = Array.isArray(structure.unreferenced_scripts)
+        ? structure.unreferenced_scripts.filter((t) => typeof t === 'string')
+        : (() => {
+            const referencedInSteps = new Set();
+            for (const step of arr(structure.steps)) {
+              for (const tool of arr(step && step.tools)) referencedInSteps.add(tool);
+            }
+            return scriptTools.filter((t) => !referencedInSteps.has(t));
+          })();
       const passed = orphaned.length === 0;
       const findings = orphaned.map((t) =>
         createFinding({
           area: 'Tool-/Skript-Abhängigkeiten',
           location: `Ressource "${t}"`,
-          problem: 'Ein Skript liegt im Skill-Verzeichnis, wird aber von keinem erkannten Schritt referenziert.',
-          cause: 'Das Skript wurde angelegt, aber keine Instruction verweist erkennbar (per Backtick-Referenz) darauf.',
-          impact: 'Ein nicht referenziertes Skript deutet auf toten Code oder eine fehlende Verknüpfung hin — Claude wird es beim Ausführen des Skills möglicherweise nie aufrufen.',
-          improvement_direction: 'Prüfen, ob das Skript tatsächlich benötigt wird, und falls ja, einen Schritt ergänzen, der es referenziert.',
-          watch_for: 'Diese Prüfung ist rein textbasiert (Backtick-Erwähnung in einem Schritt); ein Skript, das nur von einem anderen Skript aus aufgerufen wird, kann fälschlich als verwaist erscheinen.',
+          problem: 'Ein Skript liegt im Skill-Verzeichnis, wird aber weder in der SKILL.md noch von einer anderen mitgelieferten Datei referenziert.',
+          cause: 'Das Skript wurde angelegt, aber keine Instruction und kein anderes Skript verweist erkennbar darauf — weder per Pfad, per Aufruf noch per Import.',
+          impact: 'Ein nirgends referenziertes Skript deutet auf toten Code oder eine fehlende Verknüpfung hin — Claude wird es beim Ausführen des Skills möglicherweise nie aufrufen.',
+          improvement_direction: 'Prüfen, ob das Skript tatsächlich benötigt wird, und falls ja, es dort verankern, wo es aufgerufen werden soll.',
+          watch_for: 'Die Prüfung ist textbasiert: erkannt werden Pfad-, Aufruf- und Import-Erwähnungen in den mitgelieferten Dateien. Ein Skript, das ausschließlich dynamisch (z. B. über einen zur Laufzeit zusammengesetzten Namen) geladen wird, kann weiterhin fälschlich als verwaist erscheinen.',
           context: `Erkannte tool_dependencies: ${toolDependencies.join(', ')}.`,
           severity: 'LOW',
           metric: 'misconfiguration_risk',
