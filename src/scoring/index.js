@@ -17,8 +17,10 @@ const { SEVERITY_PENALTY, SEVERITY_ORDER, metricDefinition } = require('./metric
  *         Testergebnisse und erkannte Probleme dokumentiert werden."
  *
  * Hard rule enforced here: only metrics listed in `applicable_metrics` are
- * ever scored. A skill classified `simple` never receives a process_logic /
- * dependency_clarity / workflow_robustness score, because module 2 is not
+ * ever scored. A skill classified `simple` never receives the six
+ * process-only scores (process_transitions, dependency_management,
+ * decision_logic, feedback_loop_integrity, exit_conditions,
+ * dead_end_detection), because module 2 is not
  * expected to list those as applicable for a simple skill (spec.md: "Das
  * System darf keine Scores anzeigen, die für den jeweiligen Skill nicht
  * relevant sind").
@@ -48,10 +50,22 @@ function scoreMetric(metricKey, findings, testResults) {
   const def = metricDefinition(metricKey);
   const relevantFindings = findings.filter((f) => f.metric === metricKey);
 
-  const penalty = relevantFindings.reduce(
-    (sum, f) => sum + (SEVERITY_PENALTY[f.severity] || 0),
-    0
-  );
+  // Findings sharing the same `area` are repeat instances of one rule, not
+  // independent defects (e.g. nine "passage too long" hits are one habit
+  // that shows up nine times, not nine separate problems). Measured against
+  // the 40-skill corpus, that let one systemic-but-minor habit — a skill
+  // with 9 MEDIUM "too long" findings — outweigh a skill with a single
+  // CRITICAL finding on the same metric. Each repeat within an area now
+  // counts at half the weight of the one before it, so a group's total
+  // penalty converges instead of piling up unboundedly; the first instance
+  // of every area still costs full weight.
+  const occurrencesPerArea = new Map();
+  const penalty = relevantFindings.reduce((sum, f) => {
+    const occurrence = occurrencesPerArea.get(f.area) || 0;
+    occurrencesPerArea.set(f.area, occurrence + 1);
+    const weight = 1 / 2 ** occurrence;
+    return sum + (SEVERITY_PENALTY[f.severity] || 0) * weight;
+  }, 0);
   const findingsScore = clamp(100 - penalty, 0, 100);
 
   const relevantTests = testResults.filter((t) =>

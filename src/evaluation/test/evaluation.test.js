@@ -283,6 +283,29 @@ test('common instruction verbs are recognised as actionable', () => {
   }
 });
 
+test('a negated "try to" reads as a clear instruction, not vague language', () => {
+  const { containsVagueLanguage } = require('../textUtils');
+  // Both real corpus matches for "try to" were negated instructions, not
+  // hedges: doc-coauthoring's `Don't try to "sell" the approach - just
+  // execute it` and setup-writing-style's `Don't try to enumerate it cold.`
+  for (const text of [
+    'Don\'t try to "sell" the approach - just execute it.',
+    'Don\'t try to enumerate it cold.',
+    'DO NOT try to infer which skill produced which output.',
+    'Never try to guess the version.',
+  ]) {
+    assert.ok(!containsVagueLanguage(text), `should NOT read as vague: ${text}`);
+  }
+
+  // An un-negated hedge is still caught.
+  for (const text of [
+    'Try to keep the summary short.',
+    'Maybe check the file first.',
+  ]) {
+    assert.ok(containsVagueLanguage(text), `should read as vague: ${text}`);
+  }
+});
+
 test('a short heading step is not reported as too short when it has detail', () => {
   const { analyzeSkill } = require('../../analyzer');
   const path2 = require('node:path');

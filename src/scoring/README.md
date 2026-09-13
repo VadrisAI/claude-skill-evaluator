@@ -21,9 +21,10 @@ result.score_details;  // per-metric traceability: contributing findings + tests
 ## Design
 
 - **Only `applicable_metrics` are scored.** A skill classified `simple`
-  never receives `process_logic` / `dependency_clarity` /
-  `workflow_robustness` scores — those only appear when module 2 lists
-  them as applicable (i.e. the skill was classified `multi_step_process`).
+  never receives the six process-only scores (`process_transitions`,
+  `dependency_management`, `decision_logic`, `feedback_loop_integrity`,
+  `exit_conditions`, `dead_end_detection`) — those only appear when module 2
+  lists them as applicable (i.e. the skill was classified `multi_step_process`).
   This directly implements the spec.md rule: *"Das System darf keine
   Scores anzeigen, die für den jeweiligen Skill nicht relevant sind."*
 - **Every score is traceable.** Each finding in the "2 → 3" contract

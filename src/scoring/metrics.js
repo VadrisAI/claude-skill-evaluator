@@ -18,58 +18,109 @@
  * findings alone (see scoreMetric in index.js) with a generic label.
  */
 
+// Keys and testCategories here are matched against what module 2 actually
+// produces (src/evaluation/criteria.js's BASE_METRICS/PROCESS_METRICS for
+// the keys, each rule's own `testCategory` in rules/base.js and
+// rules/process.js for the mapping) — not against a speculative contract.
+// A mismatch here doesn't crash anything (an unlisted metric still scores
+// from findings alone, see metricDefinition's fallback below), but it does
+// silently disable the findings/test-pass-rate blend documented in
+// scoreMetric for whichever metric it's wrong on.
 const KNOWN_METRICS = {
+  structure_quality: {
+    label: 'Structure Quality',
+    description: 'Ob die grundlegende SKILL.md-Struktur vorhanden und erkennbar ist.',
+    testCategories: ['standard'],
+  },
   instruction_quality: {
     label: 'Instruction Quality',
     description:
       'Klarheit, Präzision und Verständlichkeit der Skill-Instructions.',
     testCategories: ['standard', 'instruction_following'],
   },
-  task_definition: {
-    label: 'Task Definition',
-    description: 'Wie klar Zweck, Ziel und erwartete Aufgabe definiert sind.',
+  clarity: {
+    label: 'Clarity',
+    description: 'Ob Instructions knapp, aber verständlich formuliert sind.',
     testCategories: ['standard'],
   },
-  consistency: {
-    label: 'Consistency',
-    description:
-      'Widerspruchsfreiheit und logische Konsistenz innerhalb des Skills.',
-    testCategories: ['consistency'],
-  },
-  robustness: {
-    label: 'Robustness',
-    description:
-      'Verhalten bei Edge Cases, mehrdeutigen Eingaben und Fehlerfällen.',
-    testCategories: ['edge', 'ambiguous', 'failure', 'boundary'],
+  precision: {
+    label: 'Precision',
+    description: 'Ob Instructions eindeutig statt vage/hedged formuliert sind.',
+    testCategories: ['ambiguous'],
   },
   completeness: {
     label: 'Completeness',
     description:
-      'Ob alle notwendigen Fälle, Schritte und Informationen abgedeckt sind.',
-    testCategories: ['standard', 'end_to_end', 'complex'],
+      'Ob Zweck, Inputs/Outputs und alle notwendigen Angaben vorhanden sind.',
+    testCategories: ['standard'],
   },
-  efficiency: {
-    label: 'Efficiency',
+  redundancy: {
+    label: 'Redundancy',
+    description: 'Ob sich Instructions unnötig wiederholen.',
+    testCategories: ['standard'],
+  },
+  contradictions: {
+    label: 'Contradictions',
+    description: 'Widerspruchsfreiheit innerhalb des Skills (z.B. "immer"/"nie").',
+    testCategories: ['consistency'],
+  },
+  consistency: {
+    label: 'Consistency',
+    description: 'Logische Konsistenz innerhalb des Skills.',
+    testCategories: ['consistency'],
+  },
+  context_efficiency: {
+    label: 'Context Efficiency',
     description: 'Kontext- und Token-Effizienz der Instructions.',
-    testCategories: [],
+    testCategories: ['boundary'],
   },
-  process_logic: {
-    label: 'Process Logic',
+  edge_case_coverage: {
+    label: 'Edge Case Coverage',
+    description: 'Ob Edge Cases und Sonderfälle abgedeckt sind.',
+    testCategories: ['edge'],
+  },
+  robustness: {
+    label: 'Robustness',
+    description: 'Verhalten bei Fehlerfällen und fehlendem Failure Handling.',
+    testCategories: ['failure'],
+  },
+  misconfiguration_risk: {
+    label: 'Misconfiguration Risk',
+    description: 'Risiko fehlerhafter Konfiguration, z.B. verwaiste Scripts.',
+    testCategories: ['standard'],
+  },
+  process_transitions: {
+    label: 'Process Transitions',
     description:
-      'Korrektheit von Prozessübergängen, Entscheidungslogik und Reihenfolge (nur multi_step_process).',
-    testCategories: ['process_transition', 'decision_logic', 'end_to_end'],
+      'Korrektheit von Prozessübergängen und Reihenfolge (nur multi_step_process).',
+    testCategories: ['process_transition', 'e2e'],
   },
-  dependency_clarity: {
-    label: 'Dependency Clarity',
+  dependency_management: {
+    label: 'Dependency Management',
     description:
       'Klarheit definierter Abhängigkeiten zwischen Prozessschritten (nur multi_step_process).',
     testCategories: ['dependency'],
   },
-  workflow_robustness: {
-    label: 'Workflow Robustness',
+  decision_logic: {
+    label: 'Decision Logic',
+    description: 'Klarheit und Eindeutigkeit von Entscheidungspunkten (nur multi_step_process).',
+    testCategories: ['decision_logic'],
+  },
+  feedback_loop_integrity: {
+    label: 'Feedback Loop Integrity',
+    description: 'Ob Feedback-Schleifen sauber terminieren (nur multi_step_process).',
+    testCategories: ['boundary'],
+  },
+  exit_conditions: {
+    label: 'Exit Conditions',
     description:
-      'Feedback-Schleifen, Exit-Bedingungen und Failure Handling im Prozessablauf (nur multi_step_process).',
-    testCategories: ['feedback_loop', 'failure', 'edge'],
+      'Ob Feedback-Schleifen und Retries erkennbare Exit-Bedingungen haben (nur multi_step_process).',
+    testCategories: ['exit_condition', 'boundary'],
+  },
+  dead_end_detection: {
+    label: 'Dead End Detection',
+    description: 'Ob Prozessschritte auf existierende Ziele verweisen (nur multi_step_process).',
+    testCategories: ['dead_end'],
   },
 };
 
