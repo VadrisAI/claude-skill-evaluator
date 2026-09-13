@@ -256,3 +256,113 @@ test('a skill with no content at all is still CRITICAL', () => {
     'a genuinely empty skill must still be reported'
   );
 });
+
+test('common instruction verbs are recognised as actionable', () => {
+  const { looksImperative } = require('../textUtils');
+  // Each of these opened a step in the real-skill corpus and was reported
+  // as "not phrased as an action"; "ask" alone accounted for 21 steps.
+  for (const text of [
+    'Ask what I want to cancel.',
+    'Confirm what you found with the user.',
+    'Research the fastest cancellation method.',
+    'Gather the receipts before continuing.',
+    'Silently drop the row and continue.',
+    'Then run the validation script.',
+    'If the upload fails, ask the user for a new file.',
+  ]) {
+    assert.ok(looksImperative(text), `should read as actionable: ${text}`);
+  }
+
+  // …without turning descriptive prose into instructions.
+  for (const text of [
+    'Design Philosophy Creation (.md file)',
+    'The report contains three sections.',
+    'This section describes the output format.',
+  ]) {
+    assert.ok(!looksImperative(text), `should NOT read as actionable: ${text}`);
+  }
+});
+
+test('a short heading step is not reported as too short when it has detail', () => {
+  const { analyzeSkill } = require('../../analyzer');
+  const path2 = require('node:path');
+  const fs2 = require('node:fs');
+  const os2 = require('node:os');
+
+  const dir = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'eval-short-'));
+  fs2.writeFileSync(
+    path2.join(dir, 'SKILL.md'),
+    [
+      '---', 'name: short', 'description: Heading workflow with a terse label.', '---', '',
+      '# Short', '',
+      '## Step 1: Prepare the input', '', 'Read the source file and normalise it.', '',
+      '## Step 2: Submit', '', 'Send the normalised payload to the endpoint and confirm the response.',
+    ].join('\n')
+  );
+  try {
+    const output = evaluateSkill(analyzeSkill(dir));
+    const shortFindings = output.findings.filter((f) => /Instruction-Klarheit/.test(f.area));
+    assert.deepEqual(shortFindings, [], 'a two-word heading label with prose beneath it is not a too-short instruction');
+  } finally {
+    fs2.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a forward cross-reference is not reported, a forward data dependency is', () => {
+  // All 14 forward references in the 40-skill corpus were cross-references,
+  // explanatory look-aheads or deliberate jumps — none of them defects.
+  const base = {
+    skill_path: './fwd',
+    complexity_class: 'multi_step_process',
+    structure: {
+      has_skill_md: true,
+      resources: [],
+      purpose: 'Runs a four-stage flow.',
+      instruction_count: 4,
+      prose_paragraphs: 4,
+      step_count: 4,
+      steps: [1, 2, 3, 4].map((id) => ({
+        id,
+        description: `Stage ${id}`,
+        detail: 'Does the thing.',
+        location: `SKILL.md:${id * 10}`,
+        tools: [],
+        references_steps: [],
+      })),
+      inputs: ['a'],
+      outputs: ['b'],
+      dependencies: [],
+      tool_dependencies: [],
+      referenced_files: [],
+      unreferenced_scripts: [],
+      decision_points: [],
+      feedback_loops: [],
+      retry_mechanisms: [],
+      failure_handling: [{ location: 'SKILL.md:50', detail: 'On error, stop and report.' }],
+    },
+    complexity_signals: ['Detected 4 ordered steps.'],
+  };
+
+  const forwardRef = (context) => {
+    const input = JSON.parse(JSON.stringify(base));
+    input.structure.dependencies = [{ from_step: 4, to_step: 1, detail: 'Step 1 references step 4', context }];
+    return evaluateSkill(input).findings.filter((f) => /Prozessübergänge/.test(f.area));
+  };
+
+  for (const benign of [
+    'the user tailors the result after the profile is saved (Step 4), not before',
+    'If I gave you a single charge or name, move to step 4.',
+    'when confident, otherwise prompt for clarification (see Step 4)',
+  ]) {
+    assert.deepEqual(forwardRef(benign), [], `must not flag a cross-reference: ${benign}`);
+  }
+
+  assert.equal(
+    forwardRef('Validate the rows using the output from step 4 before continuing.').length,
+    1,
+    'a forward reference that consumes a later step\'s output is a real ordering defect'
+  );
+
+  // No context at all: stay silent rather than guess.
+  assert.deepEqual(forwardRef(''), []);
+});

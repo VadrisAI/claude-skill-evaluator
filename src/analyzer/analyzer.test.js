@@ -486,3 +486,27 @@ test('output shape matches the documented analyzer -> evaluation contract', () =
     assert.ok(key in s, `structure is missing contract field "${key}"`);
   }
 });
+
+test('heading steps carry the label-free title plus the section prose as detail', () => {
+  const dir = makeTempSkill(
+    [
+      '---', 'name: headed', 'description: Numbered heading workflow.', '---', '',
+      '# Headed', '',
+      '## Step 1: Extract the receipt details', '',
+      'Read the receipt and pull out merchant, date and amount.', '',
+      '## Step 2: Submit', '',
+      'Enter the fields and submit the form.',
+    ].join('\n')
+  );
+  try {
+    const { structure } = analyzeSkill(dir);
+    // The "Step N:" label belongs in `id`, not in the wording of the step —
+    // leaving it in made every heading-based step read as starting with the
+    // word "Step", so wording checks could never see the real instruction.
+    assert.equal(structure.steps[0].description, 'Extract the receipt details');
+    assert.equal(structure.steps[1].description, 'Submit');
+    assert.match(structure.steps[1].detail, /Enter the fields and submit the form/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

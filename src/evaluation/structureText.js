@@ -22,12 +22,39 @@ function arr(x) {
  * collapses those into one unit, keeping the redundancy/contradiction/
  * length checks meaningful instead of noisy.
  */
+/**
+ * The text that actually represents a step's instruction.
+ *
+ * For a heading-based step ("## Step 4: Submit") `description` is just the
+ * label — the instruction is the prose beneath it, carried in `detail`.
+ * Judging wording quality on the label alone reported real skills' steps as
+ * "suspiciously short" and as "not phrased as an action", neither of which
+ * says anything about the step itself. List-based steps have no `detail`,
+ * and their description is already the full instruction.
+ */
+function stepText(step) {
+  const description = typeof step.description === 'string' ? step.description.trim() : '';
+  const detail = typeof step.detail === 'string' ? step.detail.trim() : '';
+  if (!detail) return description;
+  return description ? `${description}. ${detail}` : detail;
+}
+
 function collectTextUnits(structure) {
   const byLocation = new Map();
 
   for (const step of arr(structure.steps)) {
     if (step && typeof step.description === 'string' && step.description.trim() !== '' && step.location) {
-      byLocation.set(step.location, { id: `step-${step.id}`, text: step.description, location: step.location });
+      // `text` stays the step's own primary text — length, redundancy and
+      // contradiction checks must not measure a heading plus the whole
+      // section beneath it as one oversized "instruction". `detailText`
+      // carries the section prose for the checks that need to judge how the
+      // step is actually worded.
+      byLocation.set(step.location, {
+        id: `step-${step.id}`,
+        text: step.description,
+        detailText: typeof step.detail === 'string' ? step.detail.trim() : '',
+        location: step.location,
+      });
     }
   }
 
@@ -58,4 +85,6 @@ function collectTextUnits(structure) {
   return [...byLocation.values()];
 }
 
-module.exports = { collectTextUnits };
+module.exports = { collectTextUnits,
+  stepText,
+};
